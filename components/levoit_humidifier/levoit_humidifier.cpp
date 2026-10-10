@@ -36,11 +36,13 @@ static const size_t ST_FW_PATCH = 0;
 static const size_t ST_FW_MINOR = 1;
 static const size_t ST_FW_MAJOR = 2;
 static const size_t ST_POWER = 3;
-static const size_t ST_TANK = 4;
+// the stock firmware reports this byte as water_tank_lifted: 1 = tank removed
+static const size_t ST_TANK_LIFTED = 4;
 static const size_t ST_WATER_EMPTY = 5;
 static const size_t ST_AUTO_STOPPED = 6;
 static const size_t ST_DISPLAY = 7;
-static const size_t ST_MIST_ACTIVE = 8;
+// "fog_status": not reported to the app and 1 even while off, so not used for mist_active
+static const size_t ST_FOG = 8;
 static const size_t ST_TARGET = 9;
 static const size_t ST_HUMIDITY = 10;
 static const size_t ST_TEMPERATURE = 11;
@@ -50,7 +52,8 @@ static const size_t ST_EXCEPTION = 14;
 static const size_t ST_MIN_LEN = 15;
 static const size_t ST_CLEAN_REMINDER = 20;  // only sent by MCUs that run the reminder themselves
 
-static const uint8_t MODE_AUTO = 1;
+// stock firmware maps 0 -> "auto", 1 -> "manual" (its internal mode 4)
+static const uint8_t MODE_MANUAL = 1;
 
 // set_wifi_led data: [mode, on_ms u16, off_ms u16, repeat]. Values are the stock
 // firmware's LED behaviour table: connected = solid, pairing = 500 ms blink,
@@ -363,10 +366,10 @@ void LevoitHumidifier::handle_status_(const uint8_t *d, size_t len) {
   if (status != this->last_status_) {
     ESP_LOGD(TAG,
              "Status: power=%u mode=%s mist=%u target=%u%% humidity=%u%% temp=%uC tank=%s water=%s "
-             "mist_active=%u display=%u",
-             d[ST_POWER], d[ST_MODE] == MODE_AUTO ? "auto" : "manual", d[ST_MIST_LEVEL], d[ST_TARGET],
-             d[ST_HUMIDITY], d[ST_TEMPERATURE], d[ST_TANK] ? "in" : "lifted", d[ST_WATER_EMPTY] ? "low" : "ok",
-             d[ST_MIST_ACTIVE], d[ST_DISPLAY]);
+             "fog=%u display=%u raw=%s",
+             d[ST_POWER], d[ST_MODE] == MODE_MANUAL ? "manual" : "auto", d[ST_MIST_LEVEL], d[ST_TARGET],
+             d[ST_HUMIDITY], d[ST_TEMPERATURE], d[ST_TANK_LIFTED] ? "lifted" : "in", d[ST_WATER_EMPTY] ? "low" : "ok",
+             d[ST_FOG], d[ST_DISPLAY], format_hex_pretty(d, len).c_str());
     this->last_status_ = std::move(status);
   }
   this->target_humidity_ = d[ST_TARGET];
@@ -402,16 +405,17 @@ void LevoitHumidifier::handle_status_(const uint8_t *d, size_t len) {
     pub_number(NumberType::MIST_LEVEL, d[ST_MIST_LEVEL]);
 
   auto *mode = this->selects_[(size_t) SelectType::MODE];
-  size_t mode_index = d[ST_MODE] == MODE_AUTO ? 1 : 0;
+  size_t mode_index = d[ST_MODE] == MODE_MANUAL ? 0 : 1;
   if (mode != nullptr && (first || mode->active_index() != mode_index))
     mode->publish_state(mode_index);
 
   pub_sensor(SensorType::HUMIDITY, d[ST_HUMIDITY]);
   pub_sensor(SensorType::TEMPERATURE, d[ST_TEMPERATURE]);
 
-  pub_binary(BinarySensorType::WATER_TANK_LIFTED, !d[ST_TANK]);
+  pub_binary(BinarySensorType::WATER_TANK_LIFTED, d[ST_TANK_LIFTED]);
   pub_binary(BinarySensorType::LOW_WATER, d[ST_WATER_EMPTY]);
-  pub_binary(BinarySensorType::MIST_ACTIVE, d[ST_MIST_ACTIVE]);
+  // misting = on, tank in place, water available and the target not reached yet
+  pub_binary(BinarySensorType::MIST_ACTIVE, d[ST_POWER] && !d[ST_TANK_LIFTED] && !d[ST_WATER_EMPTY] && !d[ST_AUTO_STOPPED]);
   pub_binary(BinarySensorType::AUTO_STOPPED, d[ST_AUTO_STOPPED]);
   if (len > ST_CLEAN_REMINDER)
     pub_binary(BinarySensorType::CLEAN_REMINDER, d[ST_CLEAN_REMINDER]);

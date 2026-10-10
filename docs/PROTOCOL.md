@@ -116,15 +116,15 @@ ACK reply format: `A5 12 <their seq> 04 00 <cs> 01 <cmd_lo> <cmd_hi> 00`.
 | 1 | MCU fw minor | |
 | 2 | MCU fw major | |
 | 3 | enabled | power on |
-| 4 | container | water tank present |
+| 4 | water_tank_lifted | 1 = tank removed (reported to the app as `water_tank_lifted`) |
 | 5 | water_lacks | tank empty |
 | 6 | auto_stop_status | auto-stop reached |
 | 7 | display_config | display on |
-| 8 | fog_status | mist currently on |
+| 8 | fog_status | not reported to the app, 1 even while off; meaning unknown |
 | 9 | tgt_humidity | % |
 | 10 | cur_humidity | % |
 | 11 | cur_temp | unit unknown [infer °C] |
-| 12 | mode | 0 = manual, 1 = auto |
+| 12 | mode | 0 = auto, 1 = manual (stock internal mode 4) |
 | 13 | mist_lvl | 1–2 |
 | 14 | other_exception | error flags |
 | 20 | container_clean_status | |

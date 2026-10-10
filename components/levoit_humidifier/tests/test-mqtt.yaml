@@ -1,0 +1,35 @@
+# Compile test: humidifier entity over MQTT discovery.
+esphome:
+  name: levoit-test-mqtt
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+external_components:
+  - source:
+      type: local
+      path: ../..
+    components: [levoit_humidifier]
+
+wifi:
+  ssid: test
+  password: test1234
+
+mqtt:
+  broker: 192.168.1.2
+  discovery: false
+
+uart:
+  tx_pin: GPIO17
+  rx_pin: GPIO16
+  baud_rate: 9600
+
+levoit_humidifier:
+  mqtt_humidifier: true
+
+switch:
+  - platform: levoit_humidifier
+    type: power
+    name: Power

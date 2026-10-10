@@ -12,6 +12,11 @@
 #include "esphome/components/wifi/wifi_component.h"
 #endif
 
+#ifdef USE_LEVOIT_MQTT_HUMIDIFIER
+#include "esphome/components/mqtt/mqtt_client.h"
+#include "esphome/core/application.h"
+#endif
+
 namespace esphome {
 namespace levoit_humidifier {
 
@@ -72,6 +77,9 @@ void LevoitHumidifier::setup() {
   this->queue_command_(CMD_SET_TIMER_ICON, {0});
   this->queue_command_(CMD_QUERY_STATUS, {});
   this->publish_timer_();
+#ifdef USE_LEVOIT_MQTT_HUMIDIFIER
+  this->mqtt_setup_();
+#endif
 }
 
 void LevoitHumidifier::update() {
@@ -108,6 +116,9 @@ void LevoitHumidifier::loop() {
 
   this->update_wifi_led_(false);
   this->send_next_();
+#ifdef USE_LEVOIT_MQTT_HUMIDIFIER
+  this->mqtt_loop_();
+#endif
 }
 
 // ---- timer / clean reminder -----------------------------------------------
@@ -290,6 +301,113 @@ bool LevoitHumidifier::set_mist_level(uint8_t level) {
   return true;
 }
 
+bool LevoitHumidifier::set_auto_target(uint8_t target) {
+  if (target < MIN_TARGET_HUMIDITY || target > MAX_TARGET_HUMIDITY) {
+    ESP_LOGW(TAG, "Target humidity %u%% is out of range", target);
+    return false;
+  }
+  if (this->have_status_ && !this->power_on_) {
+    ESP_LOGW(TAG, "Cannot set target humidity: the humidifier is off");
+    return false;
+  }
+  if (!this->check_water_("target humidity"))
+    return false;
+  this->target_humidity_ = target;
+  if (this->have_status_ && this->manual_mode_)
+    return this->set_auto_mode(true);  // sends auto mode with the new target
+  this->send_auto_mode_();
+  return true;
+}
+
+#ifdef USE_LEVOIT_MQTT_HUMIDIFIER
+std::string LevoitHumidifier::mqtt_topic_(const char *suffix) const {
+  return mqtt::global_mqtt_client->get_topic_prefix() + "/levoit_humidifier/" + suffix;
+}
+
+void LevoitHumidifier::mqtt_setup_() {
+  auto *client = mqtt::global_mqtt_client;
+  if (client == nullptr)
+    return;
+  client->subscribe(this->mqtt_topic_("power/set"), [this](const std::string &, const std::string &payload) {
+    this->set_power(payload == "ON");
+    this->mqtt_dirty_ = true;
+  });
+  client->subscribe(this->mqtt_topic_("mode/set"), [this](const std::string &, const std::string &payload) {
+    this->set_auto_mode(payload == "auto");
+    this->mqtt_dirty_ = true;  // a refused change snaps the entity back
+  });
+  client->subscribe(this->mqtt_topic_("target/set"), [this](const std::string &, const std::string &payload) {
+    auto target = parse_number<float>(payload);
+    if (target.has_value())
+      this->set_auto_target((uint8_t) *target);
+    this->mqtt_dirty_ = true;
+  });
+}
+
+void LevoitHumidifier::mqtt_loop_() {
+  auto *client = mqtt::global_mqtt_client;
+  if (client == nullptr || !client->is_connected()) {
+    this->mqtt_announced_ = false;  // announce again after a reconnect
+    return;
+  }
+
+  if (!this->mqtt_announced_) {
+    std::string node = App.get_name();
+    std::string topic = this->mqtt_discovery_prefix_ + "/humidifier/" + node + "/humidifier/config";
+    bool ok = client->publish_json(
+        topic,
+        [this, &node](JsonObject root) {
+          root["name"] = nullptr;  // takes the device name
+          root["unique_id"] = node + "_levoit_humidifier";
+          root["device_class"] = "humidifier";
+          root["icon"] = "mdi:air-humidifier";
+          root["command_topic"] = this->mqtt_topic_("power/set");
+          root["state_topic"] = this->mqtt_topic_("power");
+          root["target_humidity_command_topic"] = this->mqtt_topic_("target/set");
+          root["target_humidity_state_topic"] = this->mqtt_topic_("target");
+          root["current_humidity_topic"] = this->mqtt_topic_("current");
+          root["mode_command_topic"] = this->mqtt_topic_("mode/set");
+          root["mode_state_topic"] = this->mqtt_topic_("mode");
+          JsonArray modes = root["modes"].to<JsonArray>();
+          modes.add("auto");
+          modes.add("manual");
+          root["action_topic"] = this->mqtt_topic_("action");
+          root["min_humidity"] = MIN_TARGET_HUMIDITY;
+          root["max_humidity"] = MAX_TARGET_HUMIDITY;
+          const auto &availability = mqtt::global_mqtt_client->get_availability();
+          if (!availability.topic.empty()) {
+            root["availability_topic"] = availability.topic;
+            root["payload_available"] = availability.payload_available;
+            root["payload_not_available"] = availability.payload_not_available;
+          }
+          // same MAC as the ESPHome device, so Home Assistant puts this entity on it
+          JsonObject device = root["device"].to<JsonObject>();
+          JsonArray connections = device["connections"].to<JsonArray>();
+          JsonArray mac = connections.add<JsonArray>();
+          mac.add("mac");
+          mac.add(get_mac_address_pretty());
+        },
+        0, true);
+    if (!ok)
+      return;
+    ESP_LOGI(TAG, "Announced the humidifier entity over MQTT");
+    this->mqtt_announced_ = true;
+    this->mqtt_dirty_ = true;
+  }
+
+  if (!this->mqtt_dirty_ || this->last_status_.size() < ST_MIN_LEN)
+    return;
+  this->mqtt_dirty_ = false;
+  const uint8_t *d = this->last_status_.data();
+  bool on = d[ST_POWER];
+  bool misting = on && !d[ST_TANK_LIFTED] && !d[ST_WATER_EMPTY] && !d[ST_AUTO_STOPPED];
+  client->publish(this->mqtt_topic_("power"), on ? "ON" : "OFF", 0, true);
+  client->publish(this->mqtt_topic_("mode"), d[ST_MODE] == MODE_MANUAL ? "manual" : "auto", 0, true);
+  client->publish(this->mqtt_topic_("target"), to_string(d[ST_TARGET]), 0, true);
+  client->publish(this->mqtt_topic_("current"), to_string(d[ST_HUMIDITY]), 0, true);
+  client->publish(this->mqtt_topic_("action"), !on ? "off" : misting ? "humidifying" : "idle", 0, true);
+}
+#endif
 void LevoitHumidifier::queue_command_(uint16_t cmd, std::vector<uint8_t> data) {
   // a newer value for the same setting replaces the queued one
   auto same = [cmd](const Command &c) { return c.cmd == cmd; };
@@ -434,6 +552,9 @@ void LevoitHumidifier::handle_status_(const uint8_t *d, size_t len) {
              d[ST_HUMIDITY], d[ST_TEMPERATURE], d[ST_TANK_LIFTED] ? "lifted" : "in", d[ST_WATER_EMPTY] ? "low" : "ok",
              d[ST_FOG], d[ST_DISPLAY], format_hex_pretty(d, len).c_str());
     this->last_status_ = std::move(status);
+#ifdef USE_LEVOIT_MQTT_HUMIDIFIER
+    this->mqtt_dirty_ = true;
+#endif
   }
   this->target_humidity_ = d[ST_TARGET];
   if (d[ST_MIST_LEVEL] >= 1)

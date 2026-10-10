@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "esphome/core/component.h"
+#include "esphome/core/defines.h"
 #include "esphome/core/preferences.h"
 #include "esphome/components/uart/uart.h"
 #include "esphome/components/switch/switch.h"
@@ -50,6 +51,12 @@ class LevoitHumidifier : public PollingComponent, public uart::UARTDevice {
   bool set_auto_mode(bool on);
   bool set_target_humidity(uint8_t target);
   bool set_mist_level(uint8_t level);
+  // target from the humidifier entity: like turning the dial in the app, it moves to Auto
+  bool set_auto_target(uint8_t target);
+
+#ifdef USE_LEVOIT_MQTT_HUMIDIFIER
+  void set_mqtt_discovery_prefix(const std::string &prefix) { this->mqtt_discovery_prefix_ = prefix; }
+#endif
   // shutoff/startup timer like the VeSync app: after `minutes` the power flips to the
   // opposite of what it is now; 0 cancels. Lights the timer icon while running.
   void set_timer(uint16_t minutes);
@@ -72,6 +79,17 @@ class LevoitHumidifier : public PollingComponent, public uart::UARTDevice {
   void handle_frame_(uint8_t ctrl, uint8_t seq, const uint8_t *payload, uint16_t len);
   void handle_status_(const uint8_t *d, size_t len);
   void handle_button_(uint16_t cmd, uint8_t value);
+#ifdef USE_LEVOIT_MQTT_HUMIDIFIER
+  // Home Assistant humidifier entity over MQTT discovery, on the same device as the
+  // ESPHome entities (matched by MAC address)
+  void mqtt_setup_();
+  void mqtt_loop_();
+  std::string mqtt_topic_(const char *suffix) const;
+  std::string mqtt_discovery_prefix_{"homeassistant"};
+  bool mqtt_announced_{false};
+  bool mqtt_dirty_{true};
+#endif
+
   bool check_water_(const char *what);
   void send_auto_mode_();
   void cancel_timer_();

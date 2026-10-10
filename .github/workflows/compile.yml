@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        config: [test-all-entities.yaml, test-minimal.yaml]
+        config: [test-all-entities.yaml, test-minimal.yaml, test-mqtt.yaml]
     steps:
       - uses: actions/checkout@v4
 

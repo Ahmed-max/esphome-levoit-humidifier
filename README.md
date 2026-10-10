@@ -92,6 +92,30 @@ Every entity takes the usual ESPHome options (`name`, `icon`, `internal`, ...) p
 | `button` | `reset_clean_reminder` | clear the tank-cleaning reminder |
 | `text_sensor` | `mcu_version` | firmware of the humidifier controller |
 
+## Humidifier entity (optional, MQTT)
+
+ESPHome has no humidifier entity type, so the main controls come as Power, Mode and
+Target humidity. For a real Home Assistant **humidifier** entity (the round dial with
+on/off, Auto/Manual and target humidity) the component can announce one over MQTT.
+It lands on the same device as the ESPHome entities, matched by MAC address.
+
+Needs an MQTT broker (e.g. the Mosquitto add-on) and the MQTT integration in Home
+Assistant. Add to your device YAML:
+
+```yaml
+levoit_humidifier:
+  mqtt_humidifier: true
+
+mqtt:
+  broker: 192.168.178.10     # your broker
+  username: !secret mqtt_username
+  password: !secret mqtt_password
+  discovery: false           # keep: otherwise every entity shows up twice
+```
+
+Turning the dial while in Manual switches to Auto, like the app. Everything else works
+without MQTT; if the broker is down only this one entity becomes unavailable.
+
 ## Same rules as the VeSync firmware
 
 Changes the stock firmware refuses are refused here too and the entity snaps back:

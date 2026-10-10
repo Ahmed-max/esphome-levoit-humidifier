@@ -49,6 +49,10 @@ number:
     type: mist_level
     name: Mist level
     mode: slider
+  - platform: levoit_humidifier
+    type: timer
+    name: Timer
+    mode: box
 
 sensor:
   - platform: levoit_humidifier
@@ -71,8 +75,21 @@ binary_sensor:
   - platform: levoit_humidifier
     type: auto_stopped
     name: Target reached
+  - platform: levoit_humidifier
+    type: clean_reminder
+    name: Clean tank reminder
 
 text_sensor:
   - platform: levoit_humidifier
     type: mcu_version
     name: Firmware
+
+button:
+  - platform: levoit_humidifier
+    type: reset_clean_reminder
+    name: Reset clean reminder
+
+event:
+  - platform: levoit_humidifier
+    type: button
+    name: Button

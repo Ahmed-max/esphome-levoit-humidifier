@@ -71,14 +71,40 @@ len      < 0x5DD
 | 0xD007 | uart_test | (factory) |
 | 0xD101 | reboot_mcu | `[param]` |
 
+## Display / UI behaviour of the stock firmware  [code]
+
+Wi-Fi icon, `set_wifi_led` (0xA129) data `[mode, on_ms u16, off_ms u16, repeat]`,
+mode 0 = off, 1 = on, 2 = blink. Stock LED behaviour table (network state → entry):
+
+| State | When | Entry |
+|---|---|---|
+| 1 | boot | off |
+| 2 | pairing (BLE/AP config) | blink 500/500 ms |
+| 3 | pairing ended / timed out | off |
+| 4 | receiving credentials | blink 125/125 ms |
+| 6–10 | connecting, IP, server | off |
+| 0xB | cloud connected | on |
+| 0xC | factory reset | blink 125 ms, repeat 10 |
+| 0xD | disconnected / test mode | off |
+
+- Non-connected states are not sent while the humidifier is off; the current state is
+  re-sent when it is switched on.
+- Turning the display on while connected re-sends `on`.
+- `set_display` is refused while the humidifier is off.
+- Timer icon, `set_timer_logo` (0xA26A) `[on]`: 1 while a timer runs, 0 when it expires,
+  is removed, and once at boot.
+- Tank-cleaning reminder: on MCU 1.0.0–1.0.13 and 2.0.0 the ESP counts runtime and sends
+  0x40C3; newer MCUs (e.g. 2.0.02) keep the reminder themselves (status byte 20) and the ESP
+  only sends 0x40C4 `[0]` to reset it.
+
 ## MCU → ESP frames  [code]
 
 | Opcode | Meaning | ESP must ACK? |
 |---|---|---|
 | 0x40C1 | status report (block below) | no |
-| 0x40C4 | MCU reset container-clean state | no |
-| 0xD102–0xD103 | button event, `data[0]`: 2, 3, 4 (4 = "Device" → likely pairing/reset) | yes if ctrl&0x20 |
-| 0xD104 | network-config / reset request | yes if ctrl&0x20 |
+| 0x40C4 | tank-cleaning reminder reset on the device | no |
+| 0xD102–0xD103 | button event, `data[0]`: 2/3 = start Wi-Fi pairing, 4 = factory reset | yes if ctrl&0x20 |
+| 0xD104 | enter factory test mode | yes if ctrl&0x20 |
 
 ACK reply format: `A5 12 <their seq> 04 00 <cs> 01 <cmd_lo> <cmd_hi> 00`.
 
@@ -118,5 +144,5 @@ display off   A5 22 06 05 00 86 01 05 A1 00 00
 
 ## Still to confirm with a capture
 
-- Meaning of `set_wifi_led` fields, button codes 2/3/4, `cur_temp` unit, `other_exception` bits.
+- `cur_temp` unit, `other_exception` bits.
 - Whether the MCU needs a periodic query / heartbeat, or pushes 0x40C1 on its own.

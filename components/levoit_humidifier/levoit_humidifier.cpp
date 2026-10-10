@@ -1,6 +1,7 @@
 #include "levoit_humidifier.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include "esphome/core/defines.h"
 #include "esphome/core/hal.h"
@@ -47,6 +48,7 @@ static const size_t ST_MODE = 12;
 static const size_t ST_MIST_LEVEL = 13;
 static const size_t ST_EXCEPTION = 14;
 static const size_t ST_MIN_LEN = 15;
+static const size_t ST_CLEAN_REMINDER = 20;  // only sent by MCUs that run the reminder themselves
 
 static const uint8_t MODE_AUTO = 1;
 
@@ -57,7 +59,12 @@ static const uint8_t WIFI_LED_OFF = 0;
 static const uint8_t WIFI_LED_ON = 1;
 static const uint8_t WIFI_LED_BLINK = 2;
 
-void LevoitHumidifier::setup() { this->queue_command_(CMD_QUERY_STATUS, {}); }
+void LevoitHumidifier::setup() {
+  // stock firmware clears any timer icon left over from before the reboot
+  this->queue_command_(CMD_SET_TIMER_ICON, {0});
+  this->queue_command_(CMD_QUERY_STATUS, {});
+  this->publish_timer_();
+}
 
 void LevoitHumidifier::update() {
   // only poll when idle, a status query is also queued after every ACKed command
@@ -80,8 +87,73 @@ void LevoitHumidifier::loop() {
     }
   }
 
+  if (this->timer_active_) {
+    uint32_t now = millis();
+    if ((int32_t) (now - this->timer_end_) >= 0) {
+      ESP_LOGI(TAG, "Timer expired, turning %s", this->timer_power_ ? "on" : "off");
+      this->set_power(this->timer_power_);
+      this->cancel_timer_();
+    } else if (now - this->timer_published_at_ >= 60000) {
+      this->publish_timer_();
+    }
+  }
+
   this->update_wifi_led_(false);
   this->send_next_();
+}
+
+// ---- timer / clean reminder -----------------------------------------------
+
+void LevoitHumidifier::set_timer(uint16_t minutes) {
+  if (minutes == 0) {
+    this->cancel_timer_();
+    return;
+  }
+  minutes = std::min(minutes, MAX_TIMER_MINUTES);
+  this->timer_active_ = true;
+  this->timer_power_ = !this->power_on_;
+  this->timer_end_ = millis() + minutes * 60000UL;
+  ESP_LOGI(TAG, "Timer: turn %s in %u min", this->timer_power_ ? "on" : "off", minutes);
+  this->queue_command_(CMD_SET_TIMER_ICON, {1});
+  this->publish_timer_();
+}
+
+void LevoitHumidifier::cancel_timer_() {
+  if (this->timer_active_)
+    this->queue_command_(CMD_SET_TIMER_ICON, {0});
+  this->timer_active_ = false;
+  this->publish_timer_();
+}
+
+void LevoitHumidifier::publish_timer_() {
+  this->timer_published_at_ = millis();
+  auto *n = this->numbers_[(size_t) NumberType::TIMER];
+  if (n == nullptr)
+    return;
+  float remaining = 0;
+  if (this->timer_active_)
+    remaining = std::ceil((this->timer_end_ - millis()) / 60000.0f);  // round up, 0 only when done
+  if (n->state != remaining)
+    n->publish_state(remaining);
+}
+
+void LevoitHumidifier::reset_clean_reminder() {
+  this->queue_command_(CMD_CLEAN_RESET, {0});
+  this->queue_command_(CMD_QUERY_STATUS, {});
+}
+
+void LevoitHumidifier::handle_button_(uint16_t cmd, uint8_t value) {
+  const char *type = nullptr;
+  if (cmd == CMD_TEST_MODE) {
+    type = "test_mode";
+  } else if (value == 2 || value == 3) {
+    type = "pairing";  // stock firmware enters Wi-Fi pairing
+  } else if (value == 4) {
+    type = "factory_reset";  // stock firmware wipes its Wi-Fi and account data
+  }
+  ESP_LOGI(TAG, "Button event 0x%04X value %u -> %s", cmd, value, type != nullptr ? type : "unknown");
+  if (type != nullptr && this->button_event_ != nullptr)
+    this->button_event_->trigger(type);
 }
 
 void LevoitHumidifier::update_wifi_led_(bool force) {
@@ -256,10 +328,13 @@ void LevoitHumidifier::handle_frame_(uint8_t ctrl, uint8_t seq, const uint8_t *p
 
   if (cmd == CMD_STATUS_REPORT) {
     this->handle_status_(data, data_len);
-  } else if (cmd >= CMD_BUTTON_FIRST && cmd <= CMD_BUTTON_LAST) {
-    ESP_LOGD(TAG, "MCU event 0x%04X, value %u", cmd, data_len > 0 ? data[0] : 0);
+  } else if ((cmd >= CMD_BUTTON_FIRST && cmd <= CMD_BUTTON_LAST) || cmd == CMD_TEST_MODE) {
     if (ctrl & CTRL_WANT_ACK)
       this->write_frame_(CTRL_VERSION | CTRL_ACK, seq, cmd, {});
+    this->handle_button_(cmd, data_len > 0 ? data[0] : 0);
+    this->queue_command_(CMD_QUERY_STATUS, {});
+  } else if (cmd == CMD_CLEAN_RESET) {
+    ESP_LOGD(TAG, "Tank-cleaning reminder reset on the device");
     this->queue_command_(CMD_QUERY_STATUS, {});
   } else {
     ESP_LOGD(TAG, "Unhandled MCU frame 0x%04X (%u bytes)", cmd, len);
@@ -338,6 +413,8 @@ void LevoitHumidifier::handle_status_(const uint8_t *d, size_t len) {
   pub_binary(BinarySensorType::LOW_WATER, d[ST_WATER_EMPTY]);
   pub_binary(BinarySensorType::MIST_ACTIVE, d[ST_MIST_ACTIVE]);
   pub_binary(BinarySensorType::AUTO_STOPPED, d[ST_AUTO_STOPPED]);
+  if (len > ST_CLEAN_REMINDER)
+    pub_binary(BinarySensorType::CLEAN_REMINDER, d[ST_CLEAN_REMINDER]);
 
   auto *ver = this->text_sensors_[(size_t) TextSensorType::MCU_VERSION];
   if (ver != nullptr && first)

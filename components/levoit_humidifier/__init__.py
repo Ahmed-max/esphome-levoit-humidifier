@@ -6,7 +6,16 @@ from esphome.const import CONF_ID, CONF_TYPE
 CODEOWNERS = ["@Ahmed-max"]
 DEPENDENCIES = ["uart"]
 # the hub publishes to every entity type, so their base classes are always built
-AUTO_LOAD = ["switch", "number", "select", "sensor", "binary_sensor", "text_sensor"]
+AUTO_LOAD = [
+    "switch",
+    "number",
+    "select",
+    "sensor",
+    "binary_sensor",
+    "text_sensor",
+    "button",
+    "event",
+]
 MULTI_CONF = True
 
 CONF_LEVOIT_HUMIDIFIER_ID = "levoit_humidifier_id"

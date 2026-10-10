@@ -12,6 +12,9 @@ void LevoitNumber::control(float value) {
     case NumberType::MIST_LEVEL:
       this->parent_->set_mist_level((uint8_t) value);
       break;
+    case NumberType::TIMER:
+      this->parent_->set_timer((uint16_t) value);
+      return;  // the hub publishes the remaining time
     default:
       return;
   }

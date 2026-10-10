@@ -30,6 +30,11 @@ TYPES = {
         BinarySensorType.AUTO_STOPPED,
         {CONF_ICON: "mdi:water-check"},
     ),
+    # tank-cleaning reminder kept by the humidifier controller (MCU 2.0.1 and later)
+    "clean_reminder": (
+        BinarySensorType.CLEAN_REMINDER,
+        {CONF_DEVICE_CLASS: DEVICE_CLASS_PROBLEM, CONF_ICON: "mdi:spray-bottle"},
+    ),
 }
 
 CONFIG_SCHEMA = typed_schema(binary_sensor.binary_sensor_schema(), TYPES)

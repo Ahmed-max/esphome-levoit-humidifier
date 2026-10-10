@@ -70,13 +70,26 @@ Every entity takes the usual ESPHome options (`name`, `icon`, `internal`, ...) p
 | `select` | `mode` | `Manual` / `Auto` |
 | `number` | `target_humidity` | 30–80 %, switches to Auto |
 | `number` | `mist_level` | 1–2, switches to Manual |
+| `number` | `timer` | minutes until the power flips (off if running, on if off), shows the remaining time; 0 cancels. Lights the timer icon |
 | `sensor` | `humidity` | % |
 | `sensor` | `temperature` | °C |
 | `binary_sensor` | `low_water` | tank empty |
 | `binary_sensor` | `water_tank_lifted` | tank removed |
 | `binary_sensor` | `mist_active` | mist currently running |
 | `binary_sensor` | `auto_stopped` | target reached, paused by auto stop |
+| `binary_sensor` | `clean_reminder` | tank-cleaning reminder from the controller |
+| `button` | `reset_clean_reminder` | clear the tank-cleaning reminder |
+| `event` | `button` | long-presses on the device: `pairing`, `factory_reset`, `test_mode` |
 | `text_sensor` | `mcu_version` | firmware of the humidifier controller |
+
+## Display behaviour
+
+The display icons follow the stock firmware: the Wi-Fi icon is solid while connected,
+blinks while the fallback hotspot is up and is off otherwise; the timer icon is lit while a
+timer runs; the display cannot be changed while the humidifier is off.
+
+The long-presses that started Wi-Fi pairing or a factory reset in the VeSync firmware are
+reported as `event` entities instead, so nothing on the ESP is wiped by a stray press.
 
 ## Flashing
 

@@ -13,6 +13,7 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/text_sensor/text_sensor.h"
+#include "esphome/components/event/event.h"
 
 #include "types.h"
 
@@ -38,6 +39,7 @@ class LevoitHumidifier : public PollingComponent, public uart::UARTDevice {
     this->binary_sensors_[(size_t) t] = s;
   }
   void register_text_sensor(TextSensorType t, text_sensor::TextSensor *s) { this->text_sensors_[(size_t) t] = s; }
+  void register_button_event(event::Event *e) { this->button_event_ = e; }
 
   void set_power(bool on);
   // like the stock firmware, refused while the humidifier is off; returns false then
@@ -47,6 +49,10 @@ class LevoitHumidifier : public PollingComponent, public uart::UARTDevice {
   void set_auto_mode(bool on);
   void set_target_humidity(uint8_t target);
   void set_mist_level(uint8_t level);
+  // shutoff/startup timer like the VeSync app: after `minutes` the power flips to the
+  // opposite of what it is now; 0 cancels. Lights the timer icon while running.
+  void set_timer(uint16_t minutes);
+  void reset_clean_reminder();
 
  protected:
   struct Command {
@@ -64,6 +70,9 @@ class LevoitHumidifier : public PollingComponent, public uart::UARTDevice {
   void read_uart_();
   void handle_frame_(uint8_t ctrl, uint8_t seq, const uint8_t *payload, uint16_t len);
   void handle_status_(const uint8_t *d, size_t len);
+  void handle_button_(uint16_t cmd, uint8_t value);
+  void cancel_timer_();
+  void publish_timer_();
 
   std::deque<Command> queue_;
   Command in_flight_{};
@@ -83,12 +92,18 @@ class LevoitHumidifier : public PollingComponent, public uart::UARTDevice {
   uint8_t target_humidity_{45};
   uint8_t mist_level_{1};
 
+  bool timer_active_{false};
+  bool timer_power_{false};
+  uint32_t timer_end_{0};
+  uint32_t timer_published_at_{0};
+
   std::array<switch_::Switch *, (size_t) SwitchType::COUNT> switches_{};
   std::array<number::Number *, (size_t) NumberType::COUNT> numbers_{};
   std::array<select::Select *, (size_t) SelectType::COUNT> selects_{};
   std::array<sensor::Sensor *, (size_t) SensorType::COUNT> sensors_{};
   std::array<binary_sensor::BinarySensor *, (size_t) BinarySensorType::COUNT> binary_sensors_{};
   std::array<text_sensor::TextSensor *, (size_t) TextSensorType::COUNT> text_sensors_{};
+  event::Event *button_event_{nullptr};
 };
 
 }  // namespace levoit_humidifier

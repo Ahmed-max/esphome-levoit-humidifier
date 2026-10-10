@@ -4,6 +4,7 @@ from esphome.const import (
     CONF_ICON,
     CONF_TYPE,
     CONF_UNIT_OF_MEASUREMENT,
+    UNIT_MINUTE,
     UNIT_PERCENT,
 )
 
@@ -29,6 +30,14 @@ TYPES = {
         2,
         1,
         {CONF_ICON: "mdi:weather-fog"},
+    ),
+    # minutes until the power flips; shows the remaining time, 0 = off
+    "timer": (
+        NumberType.TIMER,
+        0,
+        1440,
+        1,
+        {CONF_ICON: "mdi:timer-outline", CONF_UNIT_OF_MEASUREMENT: UNIT_MINUTE},
     ),
 }
 

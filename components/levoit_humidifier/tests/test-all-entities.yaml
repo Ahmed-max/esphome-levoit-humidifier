@@ -78,6 +78,9 @@ binary_sensor:
   - platform: levoit_humidifier
     type: clean_reminder
     name: Clean tank reminder
+  - platform: levoit_humidifier
+    type: humidity_high
+    name: Humidity high
 
 text_sensor:
   - platform: levoit_humidifier

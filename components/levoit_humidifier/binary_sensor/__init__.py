@@ -30,6 +30,11 @@ TYPES = {
         BinarySensorType.AUTO_STOPPED,
         {CONF_ICON: "mdi:water-check"},
     ),
+    # humidity above 80 %, the stock firmware's humidity_high
+    "humidity_high": (
+        BinarySensorType.HUMIDITY_HIGH,
+        {CONF_ICON: "mdi:water-percent-alert"},
+    ),
     # tank-cleaning reminder kept by the humidifier controller (MCU 2.0.1 and later)
     "clean_reminder": (
         BinarySensorType.CLEAN_REMINDER,

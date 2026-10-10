@@ -2,13 +2,18 @@
 
 [![Compile](https://github.com/Ahmed-max/esphome-levoit-humidifier/actions/workflows/compile.yml/badge.svg)](https://github.com/Ahmed-max/esphome-levoit-humidifier/actions/workflows/compile.yml)
 
+> [!WARNING]
+> **Early development.** This works on the author's Dual 200S, but it is young, has only been
+> tested on one unit (MCU firmware 2.0.02) and may change without notice. Back up the stock
+> firmware before flashing and expect rough edges. Bug reports with logs are very welcome.
+
 Local, cloud-free control of Levoit smart humidifiers with ESPHome. The ESP32
 module that ships inside the humidifier is reflashed with ESPHome and talks to the
 humidifier's own controller over UART, so no extra hardware is needed.
 
 | Model | Code | Status |
 |---|---|---|
-| Dual 200S | LUH-D301S | ✅ tested (MCU firmware 2.0.02) |
+| Dual 200S | LUH-D301S | 🧪 early development, tested on one unit (MCU firmware 2.0.02) |
 
 The UART protocol is documented in [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
@@ -81,6 +86,7 @@ Every entity takes the usual ESPHome options (`name`, `icon`, `internal`, ...) p
 | `binary_sensor` | `water_tank_lifted` | tank removed |
 | `binary_sensor` | `mist_active` | mist currently running |
 | `binary_sensor` | `auto_stopped` | target reached, paused by auto stop |
+| `binary_sensor` | `humidity_high` | humidity above 80 % |
 | `binary_sensor` | `clean_reminder` | tank-cleaning reminder from the controller |
 | `button` | `reset_clean_reminder` | clear the tank-cleaning reminder |
 | `event` | `button` | long-presses on the device: `pairing`, `factory_reset`, `test_mode` |

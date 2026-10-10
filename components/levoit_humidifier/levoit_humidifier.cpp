@@ -54,6 +54,8 @@ static const size_t ST_CLEAN_REMINDER = 20;  // only sent by MCUs that run the r
 
 // stock firmware maps 0 -> "auto", 1 -> "manual" (its internal mode 4)
 static const uint8_t MODE_MANUAL = 1;
+// stock firmware reports humidity_high to the app above this value
+static const uint8_t HUMIDITY_HIGH_ABOVE = 80;
 
 // set_wifi_led data: [mode, on_ms u16, off_ms u16, repeat]. Values are the stock
 // firmware's LED behaviour table: connected = solid, pairing = 500 ms blink,
@@ -486,6 +488,7 @@ void LevoitHumidifier::handle_status_(const uint8_t *d, size_t len) {
   // misting = on, tank in place, water available and the target not reached yet
   pub_binary(BinarySensorType::MIST_ACTIVE, d[ST_POWER] && !d[ST_TANK_LIFTED] && !d[ST_WATER_EMPTY] && !d[ST_AUTO_STOPPED]);
   pub_binary(BinarySensorType::AUTO_STOPPED, d[ST_AUTO_STOPPED]);
+  pub_binary(BinarySensorType::HUMIDITY_HIGH, d[ST_HUMIDITY] > HUMIDITY_HIGH_ABOVE);
   if (len > ST_CLEAN_REMINDER)
     pub_binary(BinarySensorType::CLEAN_REMINDER, d[ST_CLEAN_REMINDER]);
 

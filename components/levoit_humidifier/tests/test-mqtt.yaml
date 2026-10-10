@@ -26,8 +26,11 @@ uart:
   rx_pin: GPIO16
   baud_rate: 9600
 
+api:
+
 levoit_humidifier:
   mqtt_humidifier: true
+  wifi_icon: home_assistant
 
 switch:
   - platform: levoit_humidifier

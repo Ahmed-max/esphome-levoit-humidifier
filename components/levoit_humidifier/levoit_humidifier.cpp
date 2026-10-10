@@ -11,8 +11,10 @@
 #ifdef USE_WIFI
 #include "esphome/components/wifi/wifi_component.h"
 #endif
-
-#ifdef USE_LEVOIT_MQTT_HUMIDIFIER
+#ifdef USE_API
+#include "esphome/components/api/api_server.h"
+#endif
+#ifdef USE_MQTT
 #include "esphome/components/mqtt/mqtt_client.h"
 #include "esphome/core/application.h"
 #endif
@@ -20,74 +22,24 @@
 namespace esphome {
 namespace levoit_humidifier {
 
+using namespace protocol;
+
 static const char *const TAG = "levoit_humidifier";
-
-static const uint8_t FRAME_START = 0xA5;
-static const uint8_t HEADER_LEN = 6;
-static const uint16_t MAX_PAYLOAD = 0x5DC;
-static const uint8_t PAYLOAD_VERSION = 0x01;
-
-static const uint8_t CTRL_VERSION = 0x02;
-static const uint8_t CTRL_ACK = 0x10;
-static const uint8_t CTRL_WANT_ACK = 0x20;
-static const uint8_t CTRL_ERROR = 0x40;
 
 static const uint32_t ACK_TIMEOUT_MS = 1000;
 static const uint8_t MAX_RETRIES = 3;
 static const uint32_t RX_GAP_MS = 100;
 
-// Offsets in the status block (data of 0x40C1 / ACK of 0x40C0)
-static const size_t ST_FW_PATCH = 0;
-static const size_t ST_FW_MINOR = 1;
-static const size_t ST_FW_MAJOR = 2;
-static const size_t ST_POWER = 3;
-// the stock firmware reports this byte as water_tank_lifted: 1 = tank removed
-static const size_t ST_TANK_LIFTED = 4;
-static const size_t ST_WATER_EMPTY = 5;
-static const size_t ST_AUTO_STOPPED = 6;
-static const size_t ST_DISPLAY = 7;
-// "fog_status": not reported to the app and 1 even while off, so not used for mist_active
-static const size_t ST_FOG = 8;
-static const size_t ST_TARGET = 9;
-static const size_t ST_HUMIDITY = 10;
-static const size_t ST_TEMPERATURE = 11;
-static const size_t ST_MODE = 12;
-static const size_t ST_MIST_LEVEL = 13;
-static const size_t ST_EXCEPTION = 14;
-static const size_t ST_MIN_LEN = 15;
-static const size_t ST_CLEAN_REMINDER = 20;  // only sent by MCUs that run the reminder themselves
-
-// stock firmware maps 0 -> "auto", 1 -> "manual" (its internal mode 4)
-static const uint8_t MODE_MANUAL = 1;
-
-// Modes as the device button cycles them: Auto, then manual at mist level 1 (Low) or 2 (High)
-static const char *const MODE_NAMES[] = {"auto", "low", "high"};
-static size_t mode_index(const uint8_t *d) {
-  if (d[ST_MODE] != MODE_MANUAL)
-    return 0;
-  return d[ST_MIST_LEVEL] >= 2 ? 2 : 1;
-}
-// stock firmware reports humidity_high to the app above this value
-static const uint8_t HUMIDITY_HIGH_ABOVE = 80;
-
-// set_wifi_led data: [mode, on_ms u16, off_ms u16, repeat]. Values are the stock
-// firmware's LED behaviour table: connected = solid, pairing = 500 ms blink,
-// everything else (booting, connecting, offline) = off.
-static const uint8_t WIFI_LED_OFF = 0;
-static const uint8_t WIFI_LED_ON = 1;
-static const uint8_t WIFI_LED_BLINK = 2;
-
 void LevoitHumidifier::setup() {
-  this->auto_stop_pref_ = global_preferences->make_preference<bool>(fnv1_hash("levoit_auto_stop"));
+  this->auto_stop_pref_ =
+      global_preferences->make_preference<bool>(fnv1_hash(this->preference_key_ + "_auto_stop"));
   if (!this->auto_stop_pref_.load(&this->auto_stop_))
     this->auto_stop_ = false;
   // stock firmware clears any timer icon left over from before the reboot
   this->queue_command_(CMD_SET_TIMER_ICON, {0});
   this->queue_command_(CMD_QUERY_STATUS, {});
   this->publish_timer_();
-#ifdef USE_LEVOIT_MQTT_HUMIDIFIER
   this->mqtt_setup_();
-#endif
 }
 
 void LevoitHumidifier::update() {
@@ -124,9 +76,16 @@ void LevoitHumidifier::loop() {
 
   this->update_wifi_led_(false);
   this->send_next_();
-#ifdef USE_LEVOIT_MQTT_HUMIDIFIER
   this->mqtt_loop_();
-#endif
+}
+
+void LevoitHumidifier::dump_config() {
+  ESP_LOGCONFIG(TAG, "Levoit humidifier:");
+  LOG_UPDATE_INTERVAL(this);
+  ESP_LOGCONFIG(TAG, "  Wi-Fi icon: %s",
+                this->wifi_icon_source_ == WifiIconSource::HOME_ASSISTANT ? "Home Assistant connected"
+                                                                          : "Wi-Fi connected");
+  ESP_LOGCONFIG(TAG, "  MQTT humidifier entity: %s", YESNO(this->mqtt_humidifier_));
 }
 
 // ---- timer / clean reminder -----------------------------------------------
@@ -138,7 +97,7 @@ void LevoitHumidifier::set_timer(uint16_t minutes) {
   }
   minutes = std::min(minutes, MAX_TIMER_MINUTES);
   this->timer_active_ = true;
-  this->timer_power_ = !this->power_on_;
+  this->timer_power_ = !this->status_.power;
   this->timer_end_ = millis() + minutes * 60000UL;
   ESP_LOGI(TAG, "Timer: turn %s in %u min", this->timer_power_ ? "on" : "off", minutes);
   this->queue_command_(CMD_SET_TIMER_ICON, {1});
@@ -175,45 +134,56 @@ void LevoitHumidifier::handle_button_(uint16_t cmd, uint8_t value) {
   ESP_LOGD(TAG, "Long press on the device (0x%04X value %u) ignored", cmd, value);
 }
 
+// ---- Wi-Fi icon ------------------------------------------------------------
+
+bool LevoitHumidifier::connected_() const {
+  if (this->wifi_icon_source_ == WifiIconSource::HOME_ASSISTANT) {
+#ifdef USE_API
+    return api::global_api_server != nullptr && api::global_api_server->is_connected_with_state_subscription();
+#else
+    return false;
+#endif
+  }
+#ifdef USE_WIFI
+  return wifi::global_wifi_component != nullptr && wifi::global_wifi_component->is_connected();
+#else
+  return false;
+#endif
+}
+
 void LevoitHumidifier::update_wifi_led_(bool force) {
   if (!this->have_status_)
     return;  // the MCU has not answered yet
 
   WifiLed want = WifiLed::OFF;
+  if (this->connected_()) {
+    want = WifiLed::ON;
+  }
 #ifdef USE_WIFI
-  if (wifi::global_wifi_component != nullptr) {
-    if (wifi::global_wifi_component->is_connected()) {
-      want = WifiLed::ON;
-    } else if (wifi::global_wifi_component->is_ap_active()) {
-      want = WifiLed::BLINK;  // fallback hotspot, the ESPHome counterpart of pairing mode
-    }
+  else if (wifi::global_wifi_component != nullptr && wifi::global_wifi_component->is_ap_active()) {
+    want = WifiLed::BLINK;  // fallback hotspot, the ESPHome counterpart of pairing mode
   }
 #endif
   if (want == this->wifi_led_ && !force)
     return;
   // stock firmware holds back non-connected LED states while the humidifier is off,
   // and sends the current state again when it is switched on
-  if (want != WifiLed::ON && !this->power_on_)
+  if (want != WifiLed::ON && !this->status_.power)
     return;
 
   switch (want) {
     case WifiLed::ON:
-      this->queue_command_(CMD_SET_WIFI_LED, {WIFI_LED_ON, 125, 0, 125, 0, 0});
+      this->queue_command_(CMD_SET_WIFI_LED, wifi_led_on_data());
       break;
     case WifiLed::BLINK:
-      this->queue_command_(CMD_SET_WIFI_LED, {WIFI_LED_BLINK, 0xF4, 0x01, 0xF4, 0x01, 0});
+      this->queue_command_(CMD_SET_WIFI_LED, wifi_led_blink_data());
       break;
     default:
-      this->queue_command_(CMD_SET_WIFI_LED, {WIFI_LED_OFF, 75, 0, 75, 0, 0});
+      this->queue_command_(CMD_SET_WIFI_LED, wifi_led_off_data());
       break;
   }
   ESP_LOGD(TAG, "Wi-Fi icon: %s", want == WifiLed::ON ? "on" : want == WifiLed::BLINK ? "blinking" : "off");
   this->wifi_led_ = want;
-}
-
-void LevoitHumidifier::dump_config() {
-  ESP_LOGCONFIG(TAG, "Levoit humidifier:");
-  LOG_UPDATE_INTERVAL(this);
 }
 
 // ---- commands --------------------------------------------------------------
@@ -221,7 +191,7 @@ void LevoitHumidifier::dump_config() {
 void LevoitHumidifier::set_power(bool on) { this->queue_command_(CMD_SET_POWER, {(uint8_t) on}); }
 
 bool LevoitHumidifier::set_display(bool on) {
-  if (this->have_status_ && !this->power_on_) {
+  if (this->have_status_ && !this->status_.power) {
     ESP_LOGW(TAG, "Display can only be changed while the humidifier is on");
     return false;
   }
@@ -235,25 +205,21 @@ void LevoitHumidifier::set_auto_stop(bool on) {
   this->queue_command_(CMD_SET_AUTO_STOP, {(uint8_t) on});
 }
 
-// Rules below follow the stock firmware's app command handlers.
-
 void LevoitHumidifier::send_auto_mode_() {
-  uint8_t t = this->target_humidity_;
-  // same layout the stock firmware sends: target with a +-5 % band
-  this->queue_command_(CMD_SET_AUTO_MODE, {t, (uint8_t) (t - 5), (uint8_t) (t + 5), 2, 1, 1});
+  this->queue_command_(CMD_SET_AUTO_MODE, auto_mode_data(this->target_humidity_));
 }
 
 bool LevoitHumidifier::set_auto_mode(bool on) {
-  if (this->have_status_ && !this->power_on_)
+  if (this->have_status_ && !this->status_.power)
     this->set_power(true);  // choosing a mode switches the humidifier on
-  if (!this->have_status_ || on == this->manual_mode_) {
+  if (!this->have_status_ || on == this->status_.manual()) {
     if (on) {
       this->send_auto_mode_();
     } else {
-      this->queue_command_(CMD_SET_MANUAL_LEVEL, {0, 1, this->mist_level_});
+      this->queue_command_(CMD_SET_MANUAL_LEVEL, manual_level_data(this->mist_level_));
     }
   }
-  if (this->display_on_ && this->wifi_led_ == WifiLed::ON)
+  if (this->status_.display_config > 0 && this->wifi_led_ == WifiLed::ON)
     this->update_wifi_led_(true);
   return true;
 }
@@ -263,11 +229,11 @@ bool LevoitHumidifier::set_target_humidity(uint8_t target) {
     ESP_LOGW(TAG, "Target humidity %u%% is out of range", target);
     return false;
   }
-  if (this->have_status_ && !this->power_on_) {
+  if (this->have_status_ && !this->status_.power) {
     ESP_LOGW(TAG, "Cannot set target humidity: the humidifier is off");
     return false;
   }
-  if (this->have_status_ && this->manual_mode_) {
+  if (this->have_status_ && this->status_.manual()) {
     ESP_LOGW(TAG, "Manual mode cannot set target humidity, switch to Auto first");
     return false;
   }
@@ -281,10 +247,10 @@ bool LevoitHumidifier::set_mist_level(uint8_t level) {
     ESP_LOGW(TAG, "Mist level %u is out of range", level);
     return false;
   }
-  if (this->have_status_ && !this->power_on_)
+  if (this->have_status_ && !this->status_.power)
     this->set_power(true);  // like the app, a mist level switches the humidifier on
   this->mist_level_ = level;
-  this->queue_command_(CMD_SET_MANUAL_LEVEL, {0, 1, level});  // also selects manual mode
+  this->queue_command_(CMD_SET_MANUAL_LEVEL, manual_level_data(level));  // also selects manual mode
   return true;
 }
 
@@ -299,32 +265,38 @@ bool LevoitHumidifier::set_auto_target(uint8_t target) {
     ESP_LOGW(TAG, "Target humidity %u%% is out of range", target);
     return false;
   }
-  if (this->have_status_ && !this->power_on_) {
+  if (this->have_status_ && !this->status_.power) {
     ESP_LOGW(TAG, "Cannot set target humidity: the humidifier is off");
     return false;
   }
   this->target_humidity_ = target;
-  if (this->have_status_ && this->manual_mode_)
+  if (this->have_status_ && this->status_.manual())
     return this->set_auto_mode(true);  // sends auto mode with the new target
   this->send_auto_mode_();
   return true;
 }
 
-#ifdef USE_LEVOIT_MQTT_HUMIDIFIER
+// ---- MQTT humidifier entity ------------------------------------------------
+
+#ifdef USE_MQTT
 std::string LevoitHumidifier::mqtt_topic_(const char *suffix) const {
   return mqtt::global_mqtt_client->get_topic_prefix() + "/levoit_humidifier/" + suffix;
 }
 
+std::string LevoitHumidifier::mqtt_discovery_topic_() const {
+  return this->mqtt_discovery_prefix_ + "/humidifier/" + App.get_name() + "/humidifier/config";
+}
+
 void LevoitHumidifier::mqtt_setup_() {
   auto *client = mqtt::global_mqtt_client;
-  if (client == nullptr)
+  if (client == nullptr || !this->mqtt_humidifier_)
     return;
   client->subscribe(this->mqtt_topic_("power/set"), [this](const std::string &, const std::string &payload) {
     this->set_power(payload == "ON");
     this->mqtt_dirty_ = true;
   });
   client->subscribe(this->mqtt_topic_("mode/set"), [this](const std::string &, const std::string &payload) {
-    for (size_t i = 0; i < 3; i++) {
+    for (size_t i = 0; i < MODE_COUNT; i++) {
       if (payload == MODE_NAMES[i])
         this->set_mode(i);
     }
@@ -345,11 +317,17 @@ void LevoitHumidifier::mqtt_loop_() {
     return;
   }
 
+  if (!this->mqtt_humidifier_) {
+    // remove an entity announced by an earlier build: an empty retained config deletes it
+    if (!this->mqtt_announced_ && client->publish(this->mqtt_discovery_topic_(), std::string(), 0, true))
+      this->mqtt_announced_ = true;
+    return;
+  }
+
   if (!this->mqtt_announced_) {
     std::string node = App.get_name();
-    std::string topic = this->mqtt_discovery_prefix_ + "/humidifier/" + node + "/humidifier/config";
     bool ok = client->publish_json(
-        topic,
+        this->mqtt_discovery_topic_(),
         [this, &node](JsonObject root) {
           root["name"] = nullptr;  // takes the device name
           root["unique_id"] = node + "_levoit_humidifier";
@@ -389,20 +367,25 @@ void LevoitHumidifier::mqtt_loop_() {
     this->mqtt_dirty_ = true;
   }
 
-  if (!this->mqtt_dirty_ || this->last_status_.size() < ST_MIN_LEN)
+  if (!this->mqtt_dirty_ || !this->have_status_)
     return;
   this->mqtt_dirty_ = false;
-  const uint8_t *d = this->last_status_.data();
-  bool on = d[ST_POWER];
-  bool misting = on && !d[ST_TANK_LIFTED] && !d[ST_WATER_EMPTY] && !d[ST_AUTO_STOPPED];
+  const Status &s = this->status_;
   // std::string payloads: a bare literal would pick the (char *, length) overload
-  client->publish(this->mqtt_topic_("power"), std::string(on ? "ON" : "OFF"), 0, true);
-  client->publish(this->mqtt_topic_("mode"), std::string(MODE_NAMES[mode_index(d)]), 0, true);
-  client->publish(this->mqtt_topic_("target"), to_string(d[ST_TARGET]), 0, true);
-  client->publish(this->mqtt_topic_("current"), to_string(d[ST_HUMIDITY]), 0, true);
-  client->publish(this->mqtt_topic_("action"), std::string(!on ? "off" : misting ? "humidifying" : "idle"), 0, true);
+  client->publish(this->mqtt_topic_("power"), std::string(s.power ? "ON" : "OFF"), 0, true);
+  client->publish(this->mqtt_topic_("mode"), std::string(MODE_NAMES[s.mode_index()]), 0, true);
+  client->publish(this->mqtt_topic_("target"), to_string(s.target), 0, true);
+  client->publish(this->mqtt_topic_("current"), to_string(s.humidity), 0, true);
+  client->publish(this->mqtt_topic_("action"),
+                  std::string(!s.power ? "off" : s.mist_active() ? "humidifying" : "idle"), 0, true);
 }
+#else
+void LevoitHumidifier::mqtt_setup_() {}
+void LevoitHumidifier::mqtt_loop_() {}
 #endif
+
+// ---- send ------------------------------------------------------------------
+
 void LevoitHumidifier::queue_command_(uint16_t cmd, std::vector<uint8_t> data) {
   // a newer value for the same setting replaces the queued one
   auto same = [cmd](const Command &c) { return c.cmd == cmd; };
@@ -423,14 +406,7 @@ void LevoitHumidifier::send_next_() {
 }
 
 void LevoitHumidifier::write_frame_(uint8_t ctrl, uint8_t seq, uint16_t cmd, const std::vector<uint8_t> &data) {
-  uint16_t len = 4 + data.size();
-  std::vector<uint8_t> frame = {FRAME_START, ctrl, seq, (uint8_t) (len & 0xFF), (uint8_t) (len >> 8), 0,
-                                PAYLOAD_VERSION, (uint8_t) (cmd & 0xFF), (uint8_t) (cmd >> 8), 0};
-  frame.insert(frame.end(), data.begin(), data.end());
-  uint8_t sum = 0;
-  for (uint8_t b : frame)
-    sum += b;
-  frame[5] = 0xFF - sum;
+  std::vector<uint8_t> frame = encode_frame(ctrl, seq, cmd, data);
   ESP_LOGV(TAG, ">>> %s", format_hex_pretty(frame).c_str());
   this->write_array(frame.data(), frame.size());
 }
@@ -439,57 +415,42 @@ void LevoitHumidifier::write_frame_(uint8_t ctrl, uint8_t seq, uint16_t cmd, con
 
 void LevoitHumidifier::read_uart_() {
   uint32_t now = millis();
-  if (!this->rx_.empty() && now - this->last_rx_ > RX_GAP_MS)
-    this->rx_.clear();  // drop a partial frame
+  if (this->parser_.busy() && now - this->last_rx_ > RX_GAP_MS)
+    this->parser_.reset();  // drop a partial frame
 
   uint8_t b;
   while (this->available() && this->read_byte(&b)) {
     this->last_rx_ = now;
-    if (this->rx_.empty() && b != FRAME_START)
-      continue;
-    this->rx_.push_back(b);
-    if (this->rx_.size() < HEADER_LEN)
-      continue;
-
-    uint16_t len = this->rx_[3] | (this->rx_[4] << 8);
-    if (len > MAX_PAYLOAD) {
-      this->rx_.clear();
-      continue;
+    switch (this->parser_.feed(b)) {
+      case FrameParser::Result::FRAME:
+        ESP_LOGV(TAG, "<<< %s", format_hex_pretty(this->parser_.raw()).c_str());
+        this->handle_frame_(this->parser_.frame());
+        break;
+      case FrameParser::Result::BAD_CHECKSUM:
+        ESP_LOGW(TAG, "Dropping frame with bad checksum: %s", format_hex_pretty(this->parser_.raw()).c_str());
+        break;
+      default:
+        break;
     }
-    if (this->rx_.size() < HEADER_LEN + len)
-      continue;
-
-    ESP_LOGV(TAG, "<<< %s", format_hex_pretty(this->rx_).c_str());
-    uint8_t sum = 0;
-    for (uint8_t c : this->rx_)
-      sum += c;
-    if (sum != 0xFF) {
-      ESP_LOGW(TAG, "Dropping frame with bad checksum");
-    } else {
-      this->handle_frame_(this->rx_[1], this->rx_[2], this->rx_.data() + HEADER_LEN, len);
-    }
-    this->rx_.clear();
   }
 }
 
-void LevoitHumidifier::handle_frame_(uint8_t ctrl, uint8_t seq, const uint8_t *payload, uint16_t len) {
-  if ((ctrl & 0x0F) != CTRL_VERSION || len < 4 || payload[0] != PAYLOAD_VERSION) {
-    ESP_LOGW(TAG, "Unsupported frame ctrl=0x%02X len=%u", ctrl, len);
+void LevoitHumidifier::handle_frame_(const Frame &frame) {
+  if (!frame.supported()) {
+    ESP_LOGW(TAG, "Unsupported frame ctrl=0x%02X len=%u", frame.ctrl, (unsigned) frame.payload.size());
     return;
   }
-  uint16_t cmd = payload[1] | (payload[2] << 8);
-  const uint8_t *data = payload + 4;
-  size_t data_len = len - 4;
+  uint16_t cmd = frame.cmd();
 
-  if (ctrl & CTRL_ACK) {
-    if (!this->awaiting_ack_ || seq != this->tx_seq_)
+  if (frame.is_ack()) {
+    if (!this->awaiting_ack_ || frame.seq != this->tx_seq_)
       return;
     this->awaiting_ack_ = false;
-    if (ctrl & CTRL_ERROR) {
-      ESP_LOGW(TAG, "MCU rejected command 0x%04X, error 0x%02X", cmd, payload[3]);
+    if (frame.is_error()) {
+      ESP_LOGW(TAG, "MCU rejected command 0x%04X, error 0x%02X", cmd, frame.err());
     }
     if (cmd == CMD_QUERY_STATUS) {
-      this->handle_status_(data, data_len);
+      this->handle_status_(frame.data(), frame.data_len());
     } else {
       this->queue_command_(CMD_QUERY_STATUS, {});  // read back the new state
     }
@@ -497,119 +458,121 @@ void LevoitHumidifier::handle_frame_(uint8_t ctrl, uint8_t seq, const uint8_t *p
   }
 
   if (cmd == CMD_STATUS_REPORT) {
-    this->handle_status_(data, data_len);
+    this->handle_status_(frame.data(), frame.data_len());
   } else if ((cmd >= CMD_BUTTON_FIRST && cmd <= CMD_BUTTON_LAST) || cmd == CMD_TEST_MODE) {
-    if (ctrl & CTRL_WANT_ACK)
-      this->write_frame_(CTRL_VERSION | CTRL_ACK, seq, cmd, {});
-    this->handle_button_(cmd, data_len > 0 ? data[0] : 0);
+    if (frame.wants_ack())
+      this->write_frame_(CTRL_VERSION | CTRL_ACK, frame.seq, cmd, {});
+    this->handle_button_(cmd, frame.data_len() > 0 ? frame.data()[0] : 0);
     this->queue_command_(CMD_QUERY_STATUS, {});
   } else if (cmd == CMD_CLEAN_RESET) {
     ESP_LOGD(TAG, "Tank-cleaning reminder reset on the device");
     this->queue_command_(CMD_QUERY_STATUS, {});
   } else {
-    ESP_LOGD(TAG, "Unhandled MCU frame 0x%04X (%u bytes)", cmd, len);
+    ESP_LOGD(TAG, "Unhandled MCU frame 0x%04X (%u bytes)", cmd, (unsigned) frame.payload.size());
   }
 }
 
-void LevoitHumidifier::handle_status_(const uint8_t *d, size_t len) {
-  if (len < ST_MIN_LEN) {
-    ESP_LOGW(TAG, "Status block too short (%u bytes)", len);
+void LevoitHumidifier::handle_status_(const uint8_t *data, size_t len) {
+  Status s;
+  if (!decode_status(data, len, s)) {
+    ESP_LOGW(TAG, "Status block too short (%u bytes)", (unsigned) len);
     return;
   }
   bool first = !this->have_status_;
+  Status prev = this->status_;
   this->have_status_ = true;
+  this->status_ = s;
+  this->target_humidity_ = s.target;
+  if (s.mist_level >= 1)
+    this->mist_level_ = s.mist_level;
 
-  bool was_on = this->power_on_;
-  bool was_display = this->display_on_;
-  this->power_on_ = d[ST_POWER];
-  this->display_on_ = d[ST_DISPLAY] > 0;
-  this->manual_mode_ = d[ST_MODE] == MODE_MANUAL;
+  std::vector<uint8_t> raw(data, data + len);
+  if (raw != this->last_raw_status_) {
+    ESP_LOGD(TAG,
+             "Status: power=%u mode=%s target=%u%% humidity=%u%% tank=%s water=%s auto_stopped=%u "
+             "display=%u error=%u raw=%s",
+             s.power, MODE_NAMES[s.mode_index()], s.target, s.humidity, s.tank_lifted ? "lifted" : "in",
+             s.water_lacks ? "low" : "ok", s.auto_stopped, s.display_config, s.exception,
+             format_hex_pretty(data, len).c_str());
+    this->last_raw_status_ = std::move(raw);
+    this->mqtt_dirty_ = true;
+  }
+
   if (first) {
     // the auto-stop setting lives on the ESP in the stock firmware: re-apply the saved one
     this->queue_command_(CMD_SET_AUTO_STOP, {(uint8_t) this->auto_stop_});
-    auto *s = this->switches_[(size_t) SwitchType::AUTO_STOP];
-    if (s != nullptr)
-      s->publish_state(this->auto_stop_);
+    auto *sw = this->switches_[(size_t) SwitchType::AUTO_STOP];
+    if (sw != nullptr)
+      sw->publish_state(this->auto_stop_);
   }
-  if (first || (this->power_on_ && !was_on)) {
+
+  // a timer whose job got done another way (button, app, automation) is finished
+  if (!first && this->timer_active_ && s.power != prev.power && s.power == this->timer_power_) {
+    ESP_LOGI(TAG, "Timer cancelled: the humidifier was switched %s already", s.power ? "on" : "off");
+    this->cancel_timer_();
+  }
+
+  if (first || (s.power && !prev.power)) {
     this->update_wifi_led_(true);
-  } else if (this->display_on_ && !was_display && this->wifi_led_ == WifiLed::ON) {
+  } else if (s.display_config > 0 && prev.display_config == 0 && this->wifi_led_ == WifiLed::ON) {
     this->update_wifi_led_(true);  // stock firmware re-lights the icon when the display comes back
   }
 
-  std::vector<uint8_t> status(d, d + ST_MIN_LEN);
-  if (status != this->last_status_) {
-    ESP_LOGD(TAG,
-             "Status: power=%u mode=%s mist=%u target=%u%% humidity=%u%% temp=%uC tank=%s water=%s "
-             "fog=%u display=%u raw=%s",
-             d[ST_POWER], d[ST_MODE] == MODE_MANUAL ? "manual" : "auto", d[ST_MIST_LEVEL], d[ST_TARGET],
-             d[ST_HUMIDITY], d[ST_TEMPERATURE], d[ST_TANK_LIFTED] ? "lifted" : "in", d[ST_WATER_EMPTY] ? "low" : "ok",
-             d[ST_FOG], d[ST_DISPLAY], format_hex_pretty(d, len).c_str());
-    this->last_status_ = std::move(status);
-#ifdef USE_LEVOIT_MQTT_HUMIDIFIER
-    this->mqtt_dirty_ = true;
-#endif
+  this->publish_status_(s, first);
+  if (s.exception != 0) {
+    ESP_LOGW(TAG, "MCU reports exception flags 0x%02X", s.exception);
   }
-  this->target_humidity_ = d[ST_TARGET];
-  if (d[ST_MIST_LEVEL] >= 1)
-    this->mist_level_ = d[ST_MIST_LEVEL];
+}
 
+void LevoitHumidifier::publish_status_(const Status &s, bool first) {
   auto pub_switch = [&](SwitchType t, bool v) {
-    auto *s = this->switches_[(size_t) t];
-    if (s != nullptr && (first || s->state != v))
-      s->publish_state(v);
+    auto *e = this->switches_[(size_t) t];
+    if (e != nullptr && (first || e->state != v))
+      e->publish_state(v);
   };
   auto pub_number = [&](NumberType t, float v) {
-    auto *n = this->numbers_[(size_t) t];
-    if (n != nullptr && (first || n->state != v))
-      n->publish_state(v);
+    auto *e = this->numbers_[(size_t) t];
+    if (e != nullptr && (first || e->state != v))
+      e->publish_state(v);
   };
   auto pub_sensor = [&](SensorType t, float v) {
-    auto *s = this->sensors_[(size_t) t];
-    if (s != nullptr && (first || s->get_raw_state() != v))
-      s->publish_state(v);
+    auto *e = this->sensors_[(size_t) t];
+    if (e != nullptr && (first || e->get_raw_state() != v))
+      e->publish_state(v);
   };
   auto pub_binary = [&](BinarySensorType t, bool v) {
-    auto *s = this->binary_sensors_[(size_t) t];
-    if (s != nullptr)
-      s->publish_state(v);  // binary sensors already dedupe
+    auto *e = this->binary_sensors_[(size_t) t];
+    if (e != nullptr)
+      e->publish_state(v);  // binary sensors already dedupe
   };
 
-  pub_switch(SwitchType::POWER, d[ST_POWER]);
-  // reported like the app does: the display counts as on only while the humidifier is on
-  pub_switch(SwitchType::DISPLAY, d[ST_DISPLAY] > 0 && d[ST_POWER]);
+  pub_switch(SwitchType::POWER, s.power);
+  pub_switch(SwitchType::DISPLAY, s.display_on());
 
-  pub_number(NumberType::TARGET_HUMIDITY, d[ST_TARGET]);
-  if (d[ST_MIST_LEVEL] >= 1)
-    pub_number(NumberType::MIST_LEVEL, d[ST_MIST_LEVEL]);
+  pub_number(NumberType::TARGET_HUMIDITY, s.target);
+  if (s.mist_level >= 1)
+    pub_number(NumberType::MIST_LEVEL, s.mist_level);
 
   auto *mode = this->selects_[(size_t) SelectType::MODE];
-  size_t index = mode_index(d);
+  size_t index = s.mode_index();
   if (mode != nullptr && (first || mode->active_index() != index))
     mode->publish_state(index);
 
-  pub_sensor(SensorType::HUMIDITY, d[ST_HUMIDITY]);
-  pub_sensor(SensorType::TEMPERATURE, d[ST_TEMPERATURE]);
+  pub_sensor(SensorType::HUMIDITY, s.humidity);
+  pub_sensor(SensorType::TEMPERATURE, s.temperature);
 
-  pub_binary(BinarySensorType::WATER_TANK_LIFTED, d[ST_TANK_LIFTED]);
-  // the MCU reports "water lacks" all the time while it is off (MCU 2.0.02), so only while running
-  pub_binary(BinarySensorType::LOW_WATER, d[ST_WATER_EMPTY] && d[ST_POWER]);
-  // misting = on, tank in place, water available and the target not reached yet
-  pub_binary(BinarySensorType::MIST_ACTIVE, d[ST_POWER] && !d[ST_TANK_LIFTED] && !d[ST_WATER_EMPTY] && !d[ST_AUTO_STOPPED]);
-  pub_binary(BinarySensorType::AUTO_STOPPED, d[ST_AUTO_STOPPED]);
-  pub_binary(BinarySensorType::HUMIDITY_HIGH, d[ST_HUMIDITY] > HUMIDITY_HIGH_ABOVE);
-  // the stock firmware raises a humidifierError event while this byte is non-zero
-  pub_binary(BinarySensorType::FAULT, d[ST_EXCEPTION] != 0);
-  if (len > ST_CLEAN_REMINDER)
-    pub_binary(BinarySensorType::CLEAN_REMINDER, d[ST_CLEAN_REMINDER]);
+  pub_binary(BinarySensorType::WATER_TANK_LIFTED, s.tank_lifted);
+  pub_binary(BinarySensorType::LOW_WATER, s.low_water());
+  pub_binary(BinarySensorType::MIST_ACTIVE, s.mist_active());
+  pub_binary(BinarySensorType::AUTO_STOPPED, s.auto_stopped);
+  pub_binary(BinarySensorType::HUMIDITY_HIGH, s.humidity_high());
+  pub_binary(BinarySensorType::FAULT, s.exception != 0);
+  if (s.has_clean_reminder)
+    pub_binary(BinarySensorType::CLEAN_REMINDER, s.clean_reminder);
 
   auto *ver = this->text_sensors_[(size_t) TextSensorType::MCU_VERSION];
   if (ver != nullptr && first)
-    ver->publish_state(str_sprintf("%u.%u.%02u", d[ST_FW_MAJOR], d[ST_FW_MINOR], d[ST_FW_PATCH]));
-
-  if (d[ST_EXCEPTION] != 0) {
-    ESP_LOGW(TAG, "MCU reports exception flags 0x%02X", d[ST_EXCEPTION]);
-  }
+    ver->publish_state(str_sprintf("%u.%u.%02u", s.fw_major, s.fw_minor, s.fw_patch));
 }
 
 }  // namespace levoit_humidifier

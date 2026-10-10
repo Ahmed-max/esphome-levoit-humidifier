@@ -16,13 +16,17 @@
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/text_sensor/text_sensor.h"
 
+#include "protocol.h"
 #include "types.h"
 
 namespace esphome {
 namespace levoit_humidifier {
 
-// Talks to the humidifier MCU over the VeSync UART protocol:
-//   A5 | ctrl | seq | len_lo | len_hi | checksum | 01 cmd_lo cmd_hi err data...
+// What lights the Wi-Fi icon on the display: Wi-Fi alone, or a Home Assistant connection
+// (the closest match to the stock firmware's "cloud connected").
+enum class WifiIconSource : uint8_t { WIFI, HOME_ASSISTANT };
+
+// Talks to the humidifier MCU over the VeSync UART protocol (protocol.h).
 // One command is in flight at a time; it is resent until the MCU ACKs it.
 class LevoitHumidifier : public PollingComponent, public uart::UARTDevice {
  public:
@@ -41,6 +45,12 @@ class LevoitHumidifier : public PollingComponent, public uart::UARTDevice {
   }
   void register_text_sensor(TextSensorType t, text_sensor::TextSensor *s) { this->text_sensors_[(size_t) t] = s; }
 
+  // keys this hub's saved settings, so several humidifiers do not share them
+  void set_preference_key(const std::string &key) { this->preference_key_ = key; }
+  void set_wifi_icon_source(WifiIconSource source) { this->wifi_icon_source_ = source; }
+  void set_mqtt_humidifier(bool enabled) { this->mqtt_humidifier_ = enabled; }
+  void set_mqtt_discovery_prefix(const std::string &prefix) { this->mqtt_discovery_prefix_ = prefix; }
+
   void set_power(bool on);
   // like the stock firmware, refused while the humidifier is off; returns false then
   bool set_display(bool on);
@@ -56,11 +66,9 @@ class LevoitHumidifier : public PollingComponent, public uart::UARTDevice {
   // target from the humidifier entity: like turning the dial in the app, it moves to Auto
   bool set_auto_target(uint8_t target);
 
-#ifdef USE_LEVOIT_MQTT_HUMIDIFIER
-  void set_mqtt_discovery_prefix(const std::string &prefix) { this->mqtt_discovery_prefix_ = prefix; }
-#endif
-  // shutoff/startup timer like the VeSync app: after `minutes` the power flips to the
-  // opposite of what it is now; 0 cancels. Lights the timer icon while running.
+  // Timer like the VeSync app: after `minutes` the power flips to the opposite of what it
+  // is now; 0 cancels. Lights the timer icon while running. It is cancelled when the power
+  // reaches that state some other way, so it never switches back on after a manual off.
   void set_timer(uint16_t minutes);
   void reset_clean_reminder();
 
@@ -73,24 +81,28 @@ class LevoitHumidifier : public PollingComponent, public uart::UARTDevice {
   // Wi-Fi icon on the humidifier display, driven like the stock firmware does
   enum class WifiLed : uint8_t { UNKNOWN, OFF, ON, BLINK };
   void update_wifi_led_(bool force);
+  bool connected_() const;
 
   void queue_command_(uint16_t cmd, std::vector<uint8_t> data);
   void send_next_();
   void write_frame_(uint8_t ctrl, uint8_t seq, uint16_t cmd, const std::vector<uint8_t> &data);
   void read_uart_();
-  void handle_frame_(uint8_t ctrl, uint8_t seq, const uint8_t *payload, uint16_t len);
-  void handle_status_(const uint8_t *d, size_t len);
+  void handle_frame_(const protocol::Frame &frame);
+  void handle_status_(const uint8_t *data, size_t len);
+  void publish_status_(const protocol::Status &s, bool first);
   void handle_button_(uint16_t cmd, uint8_t value);
-#ifdef USE_LEVOIT_MQTT_HUMIDIFIER
-  // Home Assistant humidifier entity over MQTT discovery, on the same device as the
-  // ESPHome entities (matched by MAC address)
+
+  // Optional Home Assistant humidifier entity over MQTT discovery, on the same device as
+  // the ESPHome entities (matched by MAC address). With it disabled, a previously
+  // announced entity is removed again.
   void mqtt_setup_();
   void mqtt_loop_();
   std::string mqtt_topic_(const char *suffix) const;
+  std::string mqtt_discovery_topic_() const;
+  bool mqtt_humidifier_{false};
   std::string mqtt_discovery_prefix_{"homeassistant"};
   bool mqtt_announced_{false};
   bool mqtt_dirty_{true};
-#endif
 
   void send_auto_mode_();
   void cancel_timer_();
@@ -103,16 +115,16 @@ class LevoitHumidifier : public PollingComponent, public uart::UARTDevice {
   uint32_t sent_at_{0};
   uint8_t retries_{0};
 
-  std::vector<uint8_t> rx_;
+  protocol::FrameParser parser_;
   uint32_t last_rx_{0};
 
   bool have_status_{false};
-  std::vector<uint8_t> last_status_;
-  bool power_on_{false};
-  bool display_on_{false};
-  bool manual_mode_{false};
+  protocol::Status status_{};
+  std::vector<uint8_t> last_raw_status_;
   bool auto_stop_{false};
+  std::string preference_key_{"levoit_humidifier"};
   ESPPreferenceObject auto_stop_pref_;
+  WifiIconSource wifi_icon_source_{WifiIconSource::WIFI};
   WifiLed wifi_led_{WifiLed::UNKNOWN};
   uint8_t target_humidity_{45};
   uint8_t mist_level_{1};

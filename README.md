@@ -23,7 +23,9 @@ VeSync firmware, which was reverse engineered for this; see [docs/PROTOCOL.md](d
 
 ## Quick start
 
-Use the ready-made package. It brings in the board settings, the UART and every entity:
+Use the ready-made package. It brings in the board settings, the UART and every entity.
+Pin a [release](https://github.com/Ahmed-max/esphome-levoit-humidifier/releases), and set the
+same tag twice: once for the package, once (`levoit_ref`) for the component it builds.
 
 ```yaml
 esphome:
@@ -33,9 +35,11 @@ esphome:
 packages:
   levoit:
     url: https://github.com/Ahmed-max/esphome-levoit-humidifier
-    ref: main
-    files: [packages/dual200s.yaml]
-    refresh: 0s   # always build the latest version
+    ref: v0.1.0
+    files:
+      - path: packages/dual200s.yaml
+        vars:
+          levoit_ref: v0.1.0
 
 logger:
 api:
@@ -52,6 +56,10 @@ wifi:
 The first install has to be flashed over the serial header, see [Flashing](#flashing);
 after that, updates go over Wi-Fi.
 
+**Updating:** change both tags to the new release and install again. Changes are listed in
+the [changelog](CHANGELOG.md). To follow development instead, use `ref: main` with
+`refresh: 0s` and leave out `vars`; `main` can break at any time.
+
 ## Entities
 
 The package adds these, grouped the way Home Assistant shows them on the device page.
@@ -61,7 +69,7 @@ The package adds these, grouped the way Home Assistant shows them on the device 
 | Controls | Power | `switch` / `power` | |
 | | Mode | `select` / `mode` | `Auto` / `Low` / `High`, like the button on the device; switches the humidifier on |
 | | Target humidity | `number` / `target_humidity` | 30–80 %, only in Auto mode while on |
-| | Timer | `number` / `timer` | minutes until the power flips (off if running, on if off); counts down, 0 cancels |
+| | Timer | `number` / `timer` | minutes until the power flips (off if running, on if off); counts down, 0 cancels. Ends early if the power is switched that way by other means |
 | Sensors | Humidity | `sensor` / `humidity` | % |
 | | Low water | `binary_sensor` / `low_water` | tank empty; only reported while running (the MCU says "lacks" whenever it is off) |
 | | Water tank lifted | `binary_sensor` / `water_tank_lifted` | tank removed |
@@ -131,6 +139,7 @@ switch:
 | `update_interval` | `5s` | How often the status is polled |
 | `mqtt_humidifier` | `false` | Also announce a Home Assistant humidifier entity over MQTT, see below |
 | `mqtt_discovery_prefix` | `homeassistant` | Discovery prefix for that entity |
+| `wifi_icon` | `wifi` | What lights the Wi-Fi icon: `wifi` (connected to Wi-Fi) or `home_assistant` (Home Assistant connected, the closest match to the stock "cloud connected"; needs `api:`) |
 
 ## Humidifier entity (optional, MQTT)
 
@@ -157,8 +166,11 @@ mqtt:
 - Turning the dial while in Low or High switches to Auto, like the app.
 - The separate entities stay; hide them in Home Assistant if you only want the dial.
 - If the broker is down only this one entity becomes unavailable.
-- With `mqtt_humidifier: false` (the default) none of this is compiled in and no `mqtt:`
-  block is needed.
+- `mqtt_humidifier: false` is the default and needs no `mqtt:` block.
+- **Turning it off again:** keep the `mqtt:` block for one install with
+  `mqtt_humidifier: false` and the entity is removed. If you drop `mqtt:` straight away,
+  delete the entity in Home Assistant (or clear the retained
+  `homeassistant/humidifier/<device name>/humidifier/config` topic).
 
 ## Behaviour
 
@@ -228,9 +240,23 @@ You need a 3.3 V USB-UART adapter (CP2102, CH340, FTDI) and [esptool](https://gi
 
 - Only the Dual 200S, tested on a single unit with MCU firmware 2.0.02.
 - The timer lives on the ESP and is lost when it reboots (the stock firmware does the same).
+- Settings kept across reboots (Auto Off) are stored per hub `id`; renaming the `id` resets them.
 - Not ported: schedules (use Home Assistant automations), usage history, sleep mode
   (rejected on this model by the stock firmware too) and Wi-Fi pairing.
 - The tank-cleaning reminder needs MCU firmware 2.0.1 or later, where the controller keeps it.
+
+## Development
+
+The UART protocol lives in [protocol.h](components/levoit_humidifier/protocol.h) without ESPHome
+dependencies, so it is unit tested on the host with frames captured from a real device:
+
+```bash
+g++ -std=c++17 -Wall -Wextra -Werror -I components tests/host/test_protocol.cpp -o test_protocol
+./test_protocol
+```
+
+CI runs these tests and compiles the configs in `components/levoit_humidifier/tests`. A compiler
+warning in the component fails the build.
 
 ## Credits
 

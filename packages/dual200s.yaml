@@ -4,6 +4,11 @@
 # Entities are grouped the way Home Assistant shows them on the device page:
 # Controls, Sensors, Configuration and Diagnostic.
 
+# Which version of the component to build. Pass the same release tag as the package's
+# ref through vars (see the README) to pin both; the default follows main.
+defaults:
+  levoit_ref: main
+
 esp32:
   board: esp32dev
   flash_size: 4MB
@@ -14,7 +19,7 @@ esp32:
       CONFIG_FREERTOS_UNICORE: y
 
 external_components:
-  - source: github://Ahmed-max/esphome-levoit-humidifier@main
+  - source: github://Ahmed-max/esphome-levoit-humidifier@${levoit_ref}
     components: [levoit_humidifier]
     refresh: 0s
 

@@ -1,0 +1,47 @@
+name: Compile
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    name: ${{ matrix.config }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [test-all-entities.yaml, test-minimal.yaml]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache ESP-IDF and PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.esphome
+            ~/.cache/pip
+          key: esphome-${{ runner.os }}-${{ hashFiles('components/*/tests/*.yaml') }}
+          restore-keys: esphome-${{ runner.os }}-
+
+      - name: Install ESPHome
+        run: pip install esphome
+
+      - name: Validate config
+        working-directory: components/levoit_humidifier/tests
+        run: esphome config ${{ matrix.config }}
+
+      - name: Compile
+        working-directory: components/levoit_humidifier/tests
+        run: esphome compile ${{ matrix.config }}

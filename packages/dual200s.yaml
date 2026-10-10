@@ -1,0 +1,81 @@
+# Complete Levoit Dual 200S (LUH-D301S) device: board, UART and every entity.
+# Use it as a remote package, see the README.
+#
+# Entities mirror the VeSync integration: Mist level, Humidity, Low water,
+# Water tank lifted, Auto Off, Display, Firmware, plus Power / Mode /
+# Target humidity which replace the VeSync "Humidifier" entity.
+
+esp32:
+  board: esp32dev
+  flash_size: 4MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      # ESP32-SOLO-1C is single core
+      CONFIG_FREERTOS_UNICORE: y
+
+external_components:
+  - source: github://Ahmed-max/esphome-levoit-humidifier@main
+    components: [levoit_humidifier]
+
+uart:
+  id: levoit_uart
+  tx_pin: GPIO17
+  rx_pin: GPIO16
+  baud_rate: 9600
+
+levoit_humidifier:
+  id: levoit
+  model: DUAL200S
+
+switch:
+  - platform: levoit_humidifier
+    type: power
+    name: Power
+  - platform: levoit_humidifier
+    type: auto_stop
+    name: Auto Off
+  - platform: levoit_humidifier
+    type: display
+    name: Display
+
+select:
+  - platform: levoit_humidifier
+    type: mode
+    name: Mode
+
+number:
+  - platform: levoit_humidifier
+    type: target_humidity
+    name: Target humidity
+  - platform: levoit_humidifier
+    type: mist_level
+    name: Mist level
+    mode: slider
+
+sensor:
+  - platform: levoit_humidifier
+    type: humidity
+    name: Humidity
+  - platform: levoit_humidifier
+    type: temperature
+    name: Temperature
+
+binary_sensor:
+  - platform: levoit_humidifier
+    type: low_water
+    name: Low water
+  - platform: levoit_humidifier
+    type: water_tank_lifted
+    name: Water tank lifted
+  - platform: levoit_humidifier
+    type: mist_active
+    name: Mist active
+  - platform: levoit_humidifier
+    type: auto_stopped
+    name: Target reached
+
+text_sensor:
+  - platform: levoit_humidifier
+    type: mcu_version
+    name: Firmware

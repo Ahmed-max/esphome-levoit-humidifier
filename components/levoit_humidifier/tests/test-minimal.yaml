@@ -1,0 +1,26 @@
+# Compile test: hub with a single entity, every other platform unused.
+esphome:
+  name: levoit-test-minimal
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+external_components:
+  - source:
+      type: local
+      path: ../..
+    components: [levoit_humidifier]
+
+uart:
+  tx_pin: GPIO17
+  rx_pin: GPIO16
+  baud_rate: 9600
+
+levoit_humidifier:
+
+sensor:
+  - platform: levoit_humidifier
+    type: humidity
+    name: Humidity

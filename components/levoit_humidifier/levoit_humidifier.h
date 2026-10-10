@@ -40,7 +40,8 @@ class LevoitHumidifier : public PollingComponent, public uart::UARTDevice {
   void register_text_sensor(TextSensorType t, text_sensor::TextSensor *s) { this->text_sensors_[(size_t) t] = s; }
 
   void set_power(bool on);
-  void set_display(bool on);
+  // like the stock firmware, refused while the humidifier is off; returns false then
+  bool set_display(bool on);
   void set_auto_stop(bool on);
   // auto mode keeps humidity at the target, manual runs at a fixed mist level
   void set_auto_mode(bool on);
@@ -52,6 +53,10 @@ class LevoitHumidifier : public PollingComponent, public uart::UARTDevice {
     uint16_t cmd;
     std::vector<uint8_t> data;
   };
+
+  // Wi-Fi icon on the humidifier display, driven like the stock firmware does
+  enum class WifiLed : uint8_t { UNKNOWN, OFF, ON, BLINK };
+  void update_wifi_led_(bool force);
 
   void queue_command_(uint16_t cmd, std::vector<uint8_t> data);
   void send_next_();
@@ -72,6 +77,9 @@ class LevoitHumidifier : public PollingComponent, public uart::UARTDevice {
 
   bool have_status_{false};
   std::vector<uint8_t> last_status_;
+  bool power_on_{false};
+  bool display_on_{false};
+  WifiLed wifi_led_{WifiLed::UNKNOWN};
   uint8_t target_humidity_{45};
   uint8_t mist_level_{1};
 

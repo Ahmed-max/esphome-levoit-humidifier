@@ -10,7 +10,10 @@ void LevoitSwitch::write_state(bool state) {
       this->parent_->set_power(state);
       break;
     case SwitchType::DISPLAY:
-      this->parent_->set_display(state);
+      if (!this->parent_->set_display(state)) {
+        this->publish_state(this->state);  // refused: snap Home Assistant back
+        return;
+      }
       break;
     case SwitchType::AUTO_STOP:
       this->parent_->set_auto_stop(state);

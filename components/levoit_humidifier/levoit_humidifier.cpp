@@ -2,9 +2,14 @@
 
 #include <algorithm>
 
+#include "esphome/core/defines.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
+
+#ifdef USE_WIFI
+#include "esphome/components/wifi/wifi_component.h"
+#endif
 
 namespace esphome {
 namespace levoit_humidifier {
@@ -45,6 +50,13 @@ static const size_t ST_MIN_LEN = 15;
 
 static const uint8_t MODE_AUTO = 1;
 
+// set_wifi_led data: [mode, on_ms u16, off_ms u16, repeat]. Values are the stock
+// firmware's LED behaviour table: connected = solid, pairing = 500 ms blink,
+// everything else (booting, connecting, offline) = off.
+static const uint8_t WIFI_LED_OFF = 0;
+static const uint8_t WIFI_LED_ON = 1;
+static const uint8_t WIFI_LED_BLINK = 2;
+
 void LevoitHumidifier::setup() { this->queue_command_(CMD_QUERY_STATUS, {}); }
 
 void LevoitHumidifier::update() {
@@ -68,7 +80,44 @@ void LevoitHumidifier::loop() {
     }
   }
 
+  this->update_wifi_led_(false);
   this->send_next_();
+}
+
+void LevoitHumidifier::update_wifi_led_(bool force) {
+  if (!this->have_status_)
+    return;  // the MCU has not answered yet
+
+  WifiLed want = WifiLed::OFF;
+#ifdef USE_WIFI
+  if (wifi::global_wifi_component != nullptr) {
+    if (wifi::global_wifi_component->is_connected()) {
+      want = WifiLed::ON;
+    } else if (wifi::global_wifi_component->is_ap_active()) {
+      want = WifiLed::BLINK;  // fallback hotspot, the ESPHome counterpart of pairing mode
+    }
+  }
+#endif
+  if (want == this->wifi_led_ && !force)
+    return;
+  // stock firmware holds back non-connected LED states while the humidifier is off,
+  // and sends the current state again when it is switched on
+  if (want != WifiLed::ON && !this->power_on_)
+    return;
+
+  switch (want) {
+    case WifiLed::ON:
+      this->queue_command_(CMD_SET_WIFI_LED, {WIFI_LED_ON, 125, 0, 125, 0, 0});
+      break;
+    case WifiLed::BLINK:
+      this->queue_command_(CMD_SET_WIFI_LED, {WIFI_LED_BLINK, 0xF4, 0x01, 0xF4, 0x01, 0});
+      break;
+    default:
+      this->queue_command_(CMD_SET_WIFI_LED, {WIFI_LED_OFF, 75, 0, 75, 0, 0});
+      break;
+  }
+  ESP_LOGD(TAG, "Wi-Fi icon: %s", want == WifiLed::ON ? "on" : want == WifiLed::BLINK ? "blinking" : "off");
+  this->wifi_led_ = want;
 }
 
 void LevoitHumidifier::dump_config() {
@@ -81,7 +130,14 @@ void LevoitHumidifier::dump_config() {
 
 void LevoitHumidifier::set_power(bool on) { this->queue_command_(CMD_SET_POWER, {(uint8_t) on}); }
 
-void LevoitHumidifier::set_display(bool on) { this->queue_command_(CMD_SET_DISPLAY, {(uint8_t) (on ? 100 : 0)}); }
+bool LevoitHumidifier::set_display(bool on) {
+  if (this->have_status_ && !this->power_on_) {
+    ESP_LOGW(TAG, "Display can only be changed while the humidifier is on");
+    return false;
+  }
+  this->queue_command_(CMD_SET_DISPLAY, {(uint8_t) (on ? 100 : 0)});
+  return true;
+}
 
 void LevoitHumidifier::set_auto_stop(bool on) { this->queue_command_(CMD_SET_AUTO_STOP, {(uint8_t) on}); }
 
@@ -217,6 +273,16 @@ void LevoitHumidifier::handle_status_(const uint8_t *d, size_t len) {
   }
   bool first = !this->have_status_;
   this->have_status_ = true;
+
+  bool was_on = this->power_on_;
+  bool was_display = this->display_on_;
+  this->power_on_ = d[ST_POWER];
+  this->display_on_ = d[ST_DISPLAY] > 0;
+  if (first || (this->power_on_ && !was_on)) {
+    this->update_wifi_led_(true);
+  } else if (this->display_on_ && !was_display && this->wifi_led_ == WifiLed::ON) {
+    this->update_wifi_led_(true);  // stock firmware re-lights the icon when the display comes back
+  }
 
   std::vector<uint8_t> status(d, d + ST_MIN_LEN);
   if (status != this->last_status_) {

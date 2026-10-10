@@ -18,6 +18,7 @@ static const uint16_t CMD_QUERY_STATUS = 0x40C0;
 static const uint16_t CMD_STATUS_REPORT = 0x40C1;
 static const uint16_t CMD_SET_POWER = 0xA000;
 static const uint16_t CMD_SET_DISPLAY = 0xA105;
+static const uint16_t CMD_SET_WIFI_LED = 0xA129;
 static const uint16_t CMD_SET_MANUAL_LEVEL = 0xA260;
 static const uint16_t CMD_SET_AUTO_STOP = 0xA5E5;
 static const uint16_t CMD_BUTTON_FIRST = 0xD102;

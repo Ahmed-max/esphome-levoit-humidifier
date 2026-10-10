@@ -63,7 +63,6 @@ The package adds these, grouped the way Home Assistant shows them on the device 
 | | Target humidity | `number` / `target_humidity` | 30–80 %, only in Auto mode while on |
 | | Timer | `number` / `timer` | minutes until the power flips (off if running, on if off); counts down, 0 cancels |
 | Sensors | Humidity | `sensor` / `humidity` | % |
-| | Temperature | `sensor` / `temperature` | °C |
 | | Low water | `binary_sensor` / `low_water` | tank empty; only reported while running (the MCU says "lacks" whenever it is off) |
 | | Water tank lifted | `binary_sensor` / `water_tank_lifted` | tank removed |
 | | Mist active | `binary_sensor` / `mist_active` | on, tank in, water available and target not reached |
@@ -78,7 +77,11 @@ The package adds these, grouped the way Home Assistant shows them on the device 
 | | Humidity high | `binary_sensor` / `humidity_high` | humidity above 80 % |
 | | Wi-Fi signal | `sensor` / `wifi_signal` (ESPHome) | |
 
-Also available but not in the package: `number` / `mist_level` (1–2, same as Low / High).
+Also available but not in the package:
+
+- `number` / `mist_level`: 1–2, same as Low / High.
+- `sensor` / `temperature`: °C from the controller. The VeSync app never shows it; it is most
+  likely only used internally to compensate the humidity sensor, so treat it as a rough value.
 
 Every `levoit_humidifier` entity takes the usual ESPHome options (`name`, `icon`,
 `internal`, `entity_category`, ...) plus its `type`. Icons, units and sections have sensible
@@ -227,7 +230,6 @@ You need a 3.3 V USB-UART adapter (CP2102, CH340, FTDI) and [esptool](https://gi
 - The timer lives on the ESP and is lost when it reboots (the stock firmware does the same).
 - Not ported: schedules (use Home Assistant automations), usage history, sleep mode
   (rejected on this model by the stock firmware too) and Wi-Fi pairing.
-- The temperature reading is not shown in the VeSync app; its accuracy is unverified.
 - The tank-cleaning reminder needs MCU firmware 2.0.1 or later, where the controller keeps it.
 
 ## Credits

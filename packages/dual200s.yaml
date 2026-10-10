@@ -65,9 +65,6 @@ sensor:
   - platform: levoit_humidifier
     type: humidity
     name: Humidity
-  - platform: levoit_humidifier
-    type: temperature
-    name: Temperature
 
   # Diagnostic
   - platform: wifi_signal

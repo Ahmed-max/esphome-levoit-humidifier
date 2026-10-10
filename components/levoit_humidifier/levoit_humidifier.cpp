@@ -237,22 +237,6 @@ void LevoitHumidifier::set_auto_stop(bool on) {
 
 // Rules below follow the stock firmware's app command handlers.
 
-bool LevoitHumidifier::check_water_(const char *what) {
-  // The MCU reports "water lacks" all the time while it is off (seen on MCU 2.0.02), so
-  // only trust it while running; switching on makes the MCU check the water itself.
-  if (!this->have_status_ || !this->power_on_)
-    return true;
-  if (this->water_low_) {
-    ESP_LOGW(TAG, "Cannot set %s: water lacks", what);
-    return false;
-  }
-  if (this->tank_lifted_) {
-    ESP_LOGW(TAG, "Cannot set %s: water tank was lifted", what);
-    return false;
-  }
-  return true;
-}
-
 void LevoitHumidifier::send_auto_mode_() {
   uint8_t t = this->target_humidity_;
   // same layout the stock firmware sends: target with a +-5 % band
@@ -260,8 +244,6 @@ void LevoitHumidifier::send_auto_mode_() {
 }
 
 bool LevoitHumidifier::set_auto_mode(bool on) {
-  if (!this->check_water_("mode"))
-    return false;
   if (this->have_status_ && !this->power_on_)
     this->set_power(true);  // choosing a mode switches the humidifier on
   if (!this->have_status_ || on == this->manual_mode_) {
@@ -285,8 +267,6 @@ bool LevoitHumidifier::set_target_humidity(uint8_t target) {
     ESP_LOGW(TAG, "Cannot set target humidity: the humidifier is off");
     return false;
   }
-  if (!this->check_water_("target humidity"))
-    return false;
   if (this->have_status_ && this->manual_mode_) {
     ESP_LOGW(TAG, "Manual mode cannot set target humidity, switch to Auto first");
     return false;
@@ -301,8 +281,6 @@ bool LevoitHumidifier::set_mist_level(uint8_t level) {
     ESP_LOGW(TAG, "Mist level %u is out of range", level);
     return false;
   }
-  if (!this->check_water_("mist level"))
-    return false;
   if (this->have_status_ && !this->power_on_)
     this->set_power(true);  // like the app, a mist level switches the humidifier on
   this->mist_level_ = level;
@@ -325,8 +303,6 @@ bool LevoitHumidifier::set_auto_target(uint8_t target) {
     ESP_LOGW(TAG, "Cannot set target humidity: the humidifier is off");
     return false;
   }
-  if (!this->check_water_("target humidity"))
-    return false;
   this->target_humidity_ = target;
   if (this->have_status_ && this->manual_mode_)
     return this->set_auto_mode(true);  // sends auto mode with the new target
@@ -548,8 +524,6 @@ void LevoitHumidifier::handle_status_(const uint8_t *d, size_t len) {
   this->power_on_ = d[ST_POWER];
   this->display_on_ = d[ST_DISPLAY] > 0;
   this->manual_mode_ = d[ST_MODE] == MODE_MANUAL;
-  this->water_low_ = d[ST_WATER_EMPTY];
-  this->tank_lifted_ = d[ST_TANK_LIFTED];
   if (first) {
     // the auto-stop setting lives on the ESP in the stock firmware: re-apply the saved one
     this->queue_command_(CMD_SET_AUTO_STOP, {(uint8_t) this->auto_stop_});
@@ -618,7 +592,7 @@ void LevoitHumidifier::handle_status_(const uint8_t *d, size_t len) {
   pub_sensor(SensorType::TEMPERATURE, d[ST_TEMPERATURE]);
 
   pub_binary(BinarySensorType::WATER_TANK_LIFTED, d[ST_TANK_LIFTED]);
-  // only meaningful while running, see check_water_()
+  // the MCU reports "water lacks" all the time while it is off (MCU 2.0.02), so only while running
   pub_binary(BinarySensorType::LOW_WATER, d[ST_WATER_EMPTY] && d[ST_POWER]);
   // misting = on, tank in place, water available and the target not reached yet
   pub_binary(BinarySensorType::MIST_ACTIVE, d[ST_POWER] && !d[ST_TANK_LIFTED] && !d[ST_WATER_EMPTY] && !d[ST_AUTO_STOPPED]);

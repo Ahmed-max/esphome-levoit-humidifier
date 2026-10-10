@@ -159,12 +159,12 @@ mqtt:
 
 ## Behaviour
 
-### Same rules as the VeSync firmware
+### Control rules
 
-Changes the stock firmware refuses are refused here too, the entity snaps back and the log
-says why:
+Mode changes are always sent, also without water or with the tank lifted: the display shows
+the chosen mode and the humidifier decides whether it can mist. A few changes are refused,
+like in the stock firmware; the entity then snaps back and the log says why:
 
-- while running, mode and target need water and the tank in place
 - the target can only be set in Auto while the humidifier is on
 - the display can only be changed while the humidifier is on
 - choosing a mode switches the humidifier on

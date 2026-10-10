@@ -45,9 +45,9 @@ class LevoitHumidifier : public PollingComponent, public uart::UARTDevice {
   // like the stock firmware, refused while the humidifier is off; returns false then
   bool set_display(bool on);
   void set_auto_stop(bool on);
-  // These follow the stock firmware: they return false when it would refuse the change
-  // (water lacking, tank lifted, target in manual mode, ...). Mode and mist level switch
-  // the humidifier on first, a mist level also selects manual mode.
+  // Return false when the change is refused (target outside 30-80 %, or while off / in
+  // manual). Mode and mist level are always sent, also without water: the display follows
+  // and the MCU decides whether it can mist. They switch the humidifier on first.
   bool set_auto_mode(bool on);
   bool set_target_humidity(uint8_t target);
   bool set_mist_level(uint8_t level);
@@ -92,7 +92,6 @@ class LevoitHumidifier : public PollingComponent, public uart::UARTDevice {
   bool mqtt_dirty_{true};
 #endif
 
-  bool check_water_(const char *what);
   void send_auto_mode_();
   void cancel_timer_();
   void publish_timer_();
@@ -112,8 +111,6 @@ class LevoitHumidifier : public PollingComponent, public uart::UARTDevice {
   bool power_on_{false};
   bool display_on_{false};
   bool manual_mode_{false};
-  bool water_low_{false};
-  bool tank_lifted_{false};
   bool auto_stop_{false};
   ESPPreferenceObject auto_stop_pref_;
   WifiLed wifi_led_{WifiLed::UNKNOWN};

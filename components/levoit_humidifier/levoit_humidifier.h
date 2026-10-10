@@ -14,7 +14,6 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/text_sensor/text_sensor.h"
-#include "esphome/components/event/event.h"
 
 #include "types.h"
 
@@ -40,7 +39,6 @@ class LevoitHumidifier : public PollingComponent, public uart::UARTDevice {
     this->binary_sensors_[(size_t) t] = s;
   }
   void register_text_sensor(TextSensorType t, text_sensor::TextSensor *s) { this->text_sensors_[(size_t) t] = s; }
-  void register_button_event(event::Event *e) { this->button_event_ = e; }
 
   void set_power(bool on);
   // like the stock firmware, refused while the humidifier is off; returns false then
@@ -113,7 +111,6 @@ class LevoitHumidifier : public PollingComponent, public uart::UARTDevice {
   std::array<sensor::Sensor *, (size_t) SensorType::COUNT> sensors_{};
   std::array<binary_sensor::BinarySensor *, (size_t) BinarySensorType::COUNT> binary_sensors_{};
   std::array<text_sensor::TextSensor *, (size_t) TextSensorType::COUNT> text_sensors_{};
-  event::Event *button_event_{nullptr};
 };
 
 }  // namespace levoit_humidifier

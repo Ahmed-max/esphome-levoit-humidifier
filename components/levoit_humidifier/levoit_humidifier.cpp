@@ -151,17 +151,9 @@ void LevoitHumidifier::reset_clean_reminder() {
 }
 
 void LevoitHumidifier::handle_button_(uint16_t cmd, uint8_t value) {
-  const char *type = nullptr;
-  if (cmd == CMD_TEST_MODE) {
-    type = "test_mode";
-  } else if (value == 2 || value == 3) {
-    type = "pairing";  // stock firmware enters Wi-Fi pairing
-  } else if (value == 4) {
-    type = "factory_reset";  // stock firmware wipes its Wi-Fi and account data
-  }
-  ESP_LOGI(TAG, "Button event 0x%04X value %u -> %s", cmd, value, type != nullptr ? type : "unknown");
-  if (type != nullptr && this->button_event_ != nullptr)
-    this->button_event_->trigger(type);
+  // The stock firmware starts Wi-Fi pairing (2/3), a factory reset (4) or factory test
+  // mode (0xD104) on these long-presses. None of that exists here, so they are only logged.
+  ESP_LOGD(TAG, "Long press on the device (0x%04X value %u) ignored", cmd, value);
 }
 
 void LevoitHumidifier::update_wifi_led_(bool force) {

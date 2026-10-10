@@ -35,7 +35,7 @@ TYPES = {
     # humidity above 80 %, the stock firmware's humidity_high
     "humidity_high": (
         BinarySensorType.HUMIDITY_HIGH,
-        {CONF_ICON: "mdi:water-percent-alert"},
+        {CONF_ICON: "mdi:water-percent-alert", CONF_ENTITY_CATEGORY: ENTITY_CATEGORY_DIAGNOSTIC},
     ),
     # controller fault (status exception byte), see the log for the code
     "error": (

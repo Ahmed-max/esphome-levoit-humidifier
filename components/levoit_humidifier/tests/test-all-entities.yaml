@@ -95,7 +95,3 @@ button:
     type: reset_clean_reminder
     name: Reset clean reminder
 
-event:
-  - platform: levoit_humidifier
-    type: button
-    name: Button

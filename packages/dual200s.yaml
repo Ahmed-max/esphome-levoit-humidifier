@@ -1,9 +1,8 @@
 # Complete Levoit Dual 200S (LUH-D301S) device: board, UART and every entity.
 # Use it as a remote package, see the README.
 #
-# Entities mirror the VeSync integration: Mist level, Humidity, Low water,
-# Water tank lifted, Auto Off, Display, Firmware, plus Power / Mode /
-# Target humidity which replace the VeSync "Humidifier" entity.
+# Entities are grouped the way Home Assistant shows them on the device page:
+# Controls, Sensors, Configuration and Diagnostic.
 
 esp32:
   board: esp32dev
@@ -29,16 +28,20 @@ levoit_humidifier:
   id: levoit
   model: DUAL200S
 
+# ---------------------------------------------------------------- Controls
+
 switch:
   - platform: levoit_humidifier
     type: power
     name: Power
-  - platform: levoit_humidifier
-    type: auto_stop
-    name: Auto Off
+
+  # Configuration
   - platform: levoit_humidifier
     type: display
     name: Display
+  - platform: levoit_humidifier
+    type: auto_stop
+    name: Auto Off
 
 select:
   - platform: levoit_humidifier
@@ -49,6 +52,7 @@ number:
   - platform: levoit_humidifier
     type: target_humidity
     name: Target humidity
+    mode: slider
   - platform: levoit_humidifier
     type: mist_level
     name: Mist level
@@ -58,6 +62,8 @@ number:
     name: Timer
     mode: box
 
+# ---------------------------------------------------------------- Sensors
+
 sensor:
   - platform: levoit_humidifier
     type: humidity
@@ -65,6 +71,12 @@ sensor:
   - platform: levoit_humidifier
     type: temperature
     name: Temperature
+
+  # Diagnostic
+  - platform: wifi_signal
+    name: Wi-Fi signal
+    entity_category: diagnostic
+    update_interval: 60s
 
 binary_sensor:
   - platform: levoit_humidifier
@@ -78,10 +90,12 @@ binary_sensor:
     name: Mist active
   - platform: levoit_humidifier
     type: auto_stopped
-    name: Target reached
+    name: Target humidity reached
   - platform: levoit_humidifier
     type: clean_reminder
     name: Clean tank reminder
+
+  # Diagnostic
   - platform: levoit_humidifier
     type: humidity_high
     name: Humidity high
@@ -89,17 +103,20 @@ binary_sensor:
     type: error
     name: Error
 
-text_sensor:
-  - platform: levoit_humidifier
-    type: mcu_version
-    name: Firmware
+# ---------------------------------------------------------------- Configuration
 
 button:
   - platform: levoit_humidifier
     type: reset_clean_reminder
-    name: Reset clean reminder
+    name: Reset clean tank reminder
+  - platform: restart
+    name: Restart
+    entity_category: config
 
-event:
+# ---------------------------------------------------------------- Diagnostic
+
+text_sensor:
   - platform: levoit_humidifier
-    type: button
-    name: Button
+    type: mcu_version
+    name: MCU firmware
+

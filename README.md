@@ -90,7 +90,6 @@ Every entity takes the usual ESPHome options (`name`, `icon`, `internal`, ...) p
 | `binary_sensor` | `error` | controller reports a fault (code in the log) |
 | `binary_sensor` | `clean_reminder` | tank-cleaning reminder from the controller |
 | `button` | `reset_clean_reminder` | clear the tank-cleaning reminder |
-| `event` | `button` | long-presses on the device: `pairing`, `factory_reset`, `test_mode` |
 | `text_sensor` | `mcu_version` | firmware of the humidifier controller |
 
 ## Same rules as the VeSync firmware
@@ -107,7 +106,7 @@ blinks while the fallback hotspot is up and is off otherwise; the timer icon is 
 timer runs; the display cannot be changed while the humidifier is off.
 
 The long-presses that started Wi-Fi pairing or a factory reset in the VeSync firmware are
-reported as `event` entities instead, so nothing on the ESP is wiped by a stray press.
+ignored: pairing does not exist here and nothing on the ESP is wiped by a stray press.
 
 ## Flashing
 

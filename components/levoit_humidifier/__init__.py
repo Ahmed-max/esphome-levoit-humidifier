@@ -14,7 +14,6 @@ AUTO_LOAD = [
     "binary_sensor",
     "text_sensor",
     "button",
-    "event",
 ]
 MULTI_CONF = True
 

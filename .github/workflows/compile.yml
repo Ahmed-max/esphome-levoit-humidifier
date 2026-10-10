@@ -44,4 +44,16 @@ jobs:
 
       - name: Compile
         working-directory: components/levoit_humidifier/tests
-        run: esphome compile ${{ matrix.config }}
+        run: |
+          set -o pipefail
+          esphome compile ${{ matrix.config }} 2>&1 | tee compile.log
+
+      # warnings in this component are treated as errors (an ambiguous overload once
+      # compiled to the wrong call)
+      - name: No compiler warnings in the component
+        working-directory: components/levoit_humidifier/tests
+        run: |
+          if grep -E 'components/levoit_humidifier/.*warning:' compile.log; then
+            echo '::error::compiler warnings in levoit_humidifier'
+            exit 1
+          fi

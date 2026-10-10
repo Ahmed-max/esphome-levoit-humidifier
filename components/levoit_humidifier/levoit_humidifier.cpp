@@ -206,7 +206,6 @@ void LevoitHumidifier::update_wifi_led_(bool force) {
 void LevoitHumidifier::dump_config() {
   ESP_LOGCONFIG(TAG, "Levoit humidifier:");
   LOG_UPDATE_INTERVAL(this);
-  this->check_uart_settings(9600);
 }
 
 // ---- commands --------------------------------------------------------------
@@ -401,11 +400,12 @@ void LevoitHumidifier::mqtt_loop_() {
   const uint8_t *d = this->last_status_.data();
   bool on = d[ST_POWER];
   bool misting = on && !d[ST_TANK_LIFTED] && !d[ST_WATER_EMPTY] && !d[ST_AUTO_STOPPED];
-  client->publish(this->mqtt_topic_("power"), on ? "ON" : "OFF", 0, true);
-  client->publish(this->mqtt_topic_("mode"), d[ST_MODE] == MODE_MANUAL ? "manual" : "auto", 0, true);
+  // std::string payloads: a bare literal would pick the (char *, length) overload
+  client->publish(this->mqtt_topic_("power"), std::string(on ? "ON" : "OFF"), 0, true);
+  client->publish(this->mqtt_topic_("mode"), std::string(d[ST_MODE] == MODE_MANUAL ? "manual" : "auto"), 0, true);
   client->publish(this->mqtt_topic_("target"), to_string(d[ST_TARGET]), 0, true);
   client->publish(this->mqtt_topic_("current"), to_string(d[ST_HUMIDITY]), 0, true);
-  client->publish(this->mqtt_topic_("action"), !on ? "off" : misting ? "humidifying" : "idle", 0, true);
+  client->publish(this->mqtt_topic_("action"), std::string(!on ? "off" : misting ? "humidifying" : "idle"), 0, true);
 }
 #endif
 void LevoitHumidifier::queue_command_(uint16_t cmd, std::vector<uint8_t> data) {

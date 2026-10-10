@@ -490,8 +490,9 @@ void LevoitHumidifier::handle_frame_(uint8_t ctrl, uint8_t seq, const uint8_t *p
     if (!this->awaiting_ack_ || seq != this->tx_seq_)
       return;
     this->awaiting_ack_ = false;
-    if (ctrl & CTRL_ERROR)
+    if (ctrl & CTRL_ERROR) {
       ESP_LOGW(TAG, "MCU rejected command 0x%04X, error 0x%02X", cmd, payload[3]);
+    }
     if (cmd == CMD_QUERY_STATUS) {
       this->handle_status_(data, data_len);
     } else {
@@ -612,8 +613,9 @@ void LevoitHumidifier::handle_status_(const uint8_t *d, size_t len) {
   if (ver != nullptr && first)
     ver->publish_state(str_sprintf("%u.%u.%02u", d[ST_FW_MAJOR], d[ST_FW_MINOR], d[ST_FW_PATCH]));
 
-  if (d[ST_EXCEPTION] != 0)
+  if (d[ST_EXCEPTION] != 0) {
     ESP_LOGW(TAG, "MCU reports exception flags 0x%02X", d[ST_EXCEPTION]);
+  }
 }
 
 }  // namespace levoit_humidifier

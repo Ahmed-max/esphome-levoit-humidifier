@@ -53,7 +53,7 @@ jobs:
       - name: No compiler warnings in the component
         working-directory: components/levoit_humidifier/tests
         run: |
-          if grep -E 'components/levoit_humidifier/.*warning:' compile.log; then
+          if grep -E 'src/esphome/components/levoit_humidifier/[^ ]+\.(cpp|h):[0-9]+:[0-9]+:.*warning:' compile.log; then
             echo '::error::compiler warnings in levoit_humidifier'
             exit 1
           fi

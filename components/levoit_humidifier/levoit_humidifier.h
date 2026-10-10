@@ -71,6 +71,7 @@ class LevoitHumidifier : public PollingComponent, public uart::UARTDevice {
   uint32_t last_rx_{0};
 
   bool have_status_{false};
+  std::vector<uint8_t> last_status_;
   uint8_t target_humidity_{45};
   uint8_t mist_level_{1};
 

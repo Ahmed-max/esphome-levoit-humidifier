@@ -217,6 +217,17 @@ void LevoitHumidifier::handle_status_(const uint8_t *d, size_t len) {
   }
   bool first = !this->have_status_;
   this->have_status_ = true;
+
+  std::vector<uint8_t> status(d, d + ST_MIN_LEN);
+  if (status != this->last_status_) {
+    ESP_LOGD(TAG,
+             "Status: power=%u mode=%s mist=%u target=%u%% humidity=%u%% temp=%uC tank=%s water=%s "
+             "mist_active=%u display=%u",
+             d[ST_POWER], d[ST_MODE] == MODE_AUTO ? "auto" : "manual", d[ST_MIST_LEVEL], d[ST_TARGET],
+             d[ST_HUMIDITY], d[ST_TEMPERATURE], d[ST_TANK] ? "in" : "lifted", d[ST_WATER_EMPTY] ? "low" : "ok",
+             d[ST_MIST_ACTIVE], d[ST_DISPLAY]);
+    this->last_status_ = std::move(status);
+  }
   this->target_humidity_ = d[ST_TARGET];
   if (d[ST_MIST_LEVEL] >= 1)
     this->mist_level_ = d[ST_MIST_LEVEL];

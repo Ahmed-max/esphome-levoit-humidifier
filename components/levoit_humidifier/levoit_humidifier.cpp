@@ -63,6 +63,9 @@ static const uint8_t WIFI_LED_ON = 1;
 static const uint8_t WIFI_LED_BLINK = 2;
 
 void LevoitHumidifier::setup() {
+  this->auto_stop_pref_ = global_preferences->make_preference<bool>(fnv1_hash("levoit_auto_stop"));
+  if (!this->auto_stop_pref_.load(&this->auto_stop_))
+    this->auto_stop_ = false;
   // stock firmware clears any timer icon left over from before the reboot
   this->queue_command_(CMD_SET_TIMER_ICON, {0});
   this->queue_command_(CMD_QUERY_STATUS, {});
@@ -214,27 +217,83 @@ bool LevoitHumidifier::set_display(bool on) {
   return true;
 }
 
-void LevoitHumidifier::set_auto_stop(bool on) { this->queue_command_(CMD_SET_AUTO_STOP, {(uint8_t) on}); }
+void LevoitHumidifier::set_auto_stop(bool on) {
+  this->auto_stop_ = on;
+  this->auto_stop_pref_.save(&on);  // stock firmware keeps this setting in flash
+  this->queue_command_(CMD_SET_AUTO_STOP, {(uint8_t) on});
+}
 
-void LevoitHumidifier::set_auto_mode(bool on) {
-  if (on) {
-    this->set_target_humidity(this->target_humidity_);
-  } else {
-    this->set_mist_level(this->mist_level_);
+// Rules below follow the stock firmware's app command handlers.
+
+bool LevoitHumidifier::check_water_(const char *what) {
+  if (!this->have_status_)
+    return true;
+  if (this->water_low_) {
+    ESP_LOGW(TAG, "Cannot set %s: water lacks", what);
+    return false;
   }
+  if (this->tank_lifted_) {
+    ESP_LOGW(TAG, "Cannot set %s: water tank was lifted", what);
+    return false;
+  }
+  return true;
 }
 
-void LevoitHumidifier::set_target_humidity(uint8_t target) {
-  target = std::clamp<uint8_t>(target, MIN_TARGET_HUMIDITY, MAX_TARGET_HUMIDITY);
-  this->target_humidity_ = target;
+void LevoitHumidifier::send_auto_mode_() {
+  uint8_t t = this->target_humidity_;
   // same layout the stock firmware sends: target with a +-5 % band
-  this->queue_command_(CMD_SET_AUTO_MODE, {target, (uint8_t) (target - 5), (uint8_t) (target + 5), 2, 1, 1});
+  this->queue_command_(CMD_SET_AUTO_MODE, {t, (uint8_t) (t - 5), (uint8_t) (t + 5), 2, 1, 1});
 }
 
-void LevoitHumidifier::set_mist_level(uint8_t level) {
-  level = std::clamp<uint8_t>(level, 1, MAX_MIST_LEVEL);
+bool LevoitHumidifier::set_auto_mode(bool on) {
+  if (!this->check_water_("mode"))
+    return false;
+  if (this->have_status_ && !this->power_on_)
+    this->set_power(true);  // choosing a mode switches the humidifier on
+  if (!this->have_status_ || on == this->manual_mode_) {
+    if (on) {
+      this->send_auto_mode_();
+    } else {
+      this->queue_command_(CMD_SET_MANUAL_LEVEL, {0, 1, this->mist_level_});
+    }
+  }
+  if (this->display_on_ && this->wifi_led_ == WifiLed::ON)
+    this->update_wifi_led_(true);
+  return true;
+}
+
+bool LevoitHumidifier::set_target_humidity(uint8_t target) {
+  if (target < MIN_TARGET_HUMIDITY || target > MAX_TARGET_HUMIDITY) {
+    ESP_LOGW(TAG, "Target humidity %u%% is out of range", target);
+    return false;
+  }
+  if (this->have_status_ && !this->power_on_) {
+    ESP_LOGW(TAG, "Cannot set target humidity: the humidifier is off");
+    return false;
+  }
+  if (!this->check_water_("target humidity"))
+    return false;
+  if (this->have_status_ && this->manual_mode_) {
+    ESP_LOGW(TAG, "Manual mode cannot set target humidity, switch to Auto first");
+    return false;
+  }
+  this->target_humidity_ = target;
+  this->send_auto_mode_();
+  return true;
+}
+
+bool LevoitHumidifier::set_mist_level(uint8_t level) {
+  if (level < 1 || level > MAX_MIST_LEVEL) {
+    ESP_LOGW(TAG, "Mist level %u is out of range", level);
+    return false;
+  }
+  if (!this->check_water_("mist level"))
+    return false;
+  if (this->have_status_ && !this->power_on_)
+    this->set_power(true);  // like the app, a mist level switches the humidifier on
   this->mist_level_ = level;
-  this->queue_command_(CMD_SET_MANUAL_LEVEL, {0, 1, level});
+  this->queue_command_(CMD_SET_MANUAL_LEVEL, {0, 1, level});  // also selects manual mode
+  return true;
 }
 
 void LevoitHumidifier::queue_command_(uint16_t cmd, std::vector<uint8_t> data) {
@@ -356,6 +415,16 @@ void LevoitHumidifier::handle_status_(const uint8_t *d, size_t len) {
   bool was_display = this->display_on_;
   this->power_on_ = d[ST_POWER];
   this->display_on_ = d[ST_DISPLAY] > 0;
+  this->manual_mode_ = d[ST_MODE] == MODE_MANUAL;
+  this->water_low_ = d[ST_WATER_EMPTY];
+  this->tank_lifted_ = d[ST_TANK_LIFTED];
+  if (first) {
+    // the auto-stop setting lives on the ESP in the stock firmware: re-apply the saved one
+    this->queue_command_(CMD_SET_AUTO_STOP, {(uint8_t) this->auto_stop_});
+    auto *s = this->switches_[(size_t) SwitchType::AUTO_STOP];
+    if (s != nullptr)
+      s->publish_state(this->auto_stop_);
+  }
   if (first || (this->power_on_ && !was_on)) {
     this->update_wifi_led_(true);
   } else if (this->display_on_ && !was_display && this->wifi_led_ == WifiLed::ON) {

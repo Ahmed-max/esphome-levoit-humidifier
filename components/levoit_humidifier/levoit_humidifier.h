@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "esphome/core/component.h"
+#include "esphome/core/preferences.h"
 #include "esphome/components/uart/uart.h"
 #include "esphome/components/switch/switch.h"
 #include "esphome/components/number/number.h"
@@ -45,10 +46,12 @@ class LevoitHumidifier : public PollingComponent, public uart::UARTDevice {
   // like the stock firmware, refused while the humidifier is off; returns false then
   bool set_display(bool on);
   void set_auto_stop(bool on);
-  // auto mode keeps humidity at the target, manual runs at a fixed mist level
-  void set_auto_mode(bool on);
-  void set_target_humidity(uint8_t target);
-  void set_mist_level(uint8_t level);
+  // These follow the stock firmware: they return false when it would refuse the change
+  // (water lacking, tank lifted, target in manual mode, ...). Mode and mist level switch
+  // the humidifier on first, a mist level also selects manual mode.
+  bool set_auto_mode(bool on);
+  bool set_target_humidity(uint8_t target);
+  bool set_mist_level(uint8_t level);
   // shutoff/startup timer like the VeSync app: after `minutes` the power flips to the
   // opposite of what it is now; 0 cancels. Lights the timer icon while running.
   void set_timer(uint16_t minutes);
@@ -71,6 +74,8 @@ class LevoitHumidifier : public PollingComponent, public uart::UARTDevice {
   void handle_frame_(uint8_t ctrl, uint8_t seq, const uint8_t *payload, uint16_t len);
   void handle_status_(const uint8_t *d, size_t len);
   void handle_button_(uint16_t cmd, uint8_t value);
+  bool check_water_(const char *what);
+  void send_auto_mode_();
   void cancel_timer_();
   void publish_timer_();
 
@@ -88,6 +93,11 @@ class LevoitHumidifier : public PollingComponent, public uart::UARTDevice {
   std::vector<uint8_t> last_status_;
   bool power_on_{false};
   bool display_on_{false};
+  bool manual_mode_{false};
+  bool water_low_{false};
+  bool tank_lifted_{false};
+  bool auto_stop_{false};
+  ESPPreferenceObject auto_stop_pref_;
   WifiLed wifi_led_{WifiLed::UNKNOWN};
   uint8_t target_humidity_{45};
   uint8_t mist_level_{1};

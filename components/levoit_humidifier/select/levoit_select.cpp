@@ -7,8 +7,11 @@ namespace levoit_humidifier {
 void LevoitSelect::control(size_t index) {
   if (this->type_ != SelectType::MODE)
     return;
-  this->parent_->set_auto_mode(index == 1);
-  this->publish_state(index);
+  if (this->parent_->set_auto_mode(index == 1)) {
+    this->publish_state(index);
+  } else if (this->active_index().has_value()) {
+    this->publish_state(*this->active_index());  // refused: snap Home Assistant back
+  }
 }
 
 }  // namespace levoit_humidifier

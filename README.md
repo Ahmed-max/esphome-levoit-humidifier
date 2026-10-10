@@ -70,10 +70,10 @@ Every entity takes the usual ESPHome options (`name`, `icon`, `internal`, ...) p
 |---|---|---|
 | `switch` | `power` | |
 | `switch` | `display` | display on/off |
-| `switch` | `auto_stop` | stop misting when the target is reached ("Auto Off") |
-| `select` | `mode` | `Manual` / `Auto` |
-| `number` | `target_humidity` | 30–80 %, switches to Auto |
-| `number` | `mist_level` | 1–2, switches to Manual |
+| `switch` | `auto_stop` | stop misting when the target is reached ("Auto Off"); kept across reboots |
+| `select` | `mode` | `Manual` / `Auto`; switches the humidifier on |
+| `number` | `target_humidity` | 30–80 %, only in Auto mode while on |
+| `number` | `mist_level` | 1–2; switches on and to Manual |
 | `number` | `timer` | minutes until the power flips (off if running, on if off), shows the remaining time; 0 cancels. Lights the timer icon |
 | `sensor` | `humidity` | % |
 | `sensor` | `temperature` | °C |
@@ -85,6 +85,13 @@ Every entity takes the usual ESPHome options (`name`, `icon`, `internal`, ...) p
 | `button` | `reset_clean_reminder` | clear the tank-cleaning reminder |
 | `event` | `button` | long-presses on the device: `pairing`, `factory_reset`, `test_mode` |
 | `text_sensor` | `mcu_version` | firmware of the humidifier controller |
+
+## Same rules as the VeSync firmware
+
+Changes the stock firmware refuses are refused here too and the entity snaps back:
+mode, mist level and target need water and the tank in place, the target can only be set
+in Auto mode while the humidifier is on, and the display only while it is on. Choosing a
+mode or mist level switches the humidifier on, like the app does.
 
 ## Display behaviour
 

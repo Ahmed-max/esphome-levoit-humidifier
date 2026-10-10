@@ -142,7 +142,9 @@ auto, 50 %    A5 22 05 0A 00 CE 01 80 40 00 32 2D 37 02 01 01
 display off   A5 22 06 05 00 86 01 05 A1 00 00
 ```
 
-## Still to confirm with a capture
+## Still to confirm on hardware
 
 - `cur_temp` unit, `other_exception` bits.
-- Whether the MCU needs a periodic query / heartbeat, or pushes 0x40C1 on its own.
+- Whether the MCU pushes 0x40C1 on its own; the component polls 0x40C0 every 5 s either way.
+- Position of the clean-reminder flag (byte 20); it has only been seen as 0.
+- Which physical long-press sends which 0xD102/0xD103 value.

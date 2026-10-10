@@ -7,20 +7,23 @@
 > tested on one unit (MCU firmware 2.0.02) and may change without notice. Back up the stock
 > firmware before flashing and expect rough edges. Bug reports with logs are very welcome.
 
-Local, cloud-free control of Levoit smart humidifiers with ESPHome. The ESP32
-module that ships inside the humidifier is reflashed with ESPHome and talks to the
-humidifier's own controller over UART, so no extra hardware is needed.
+Local, cloud-free control of Levoit smart humidifiers with ESPHome. The ESP32 module that
+ships inside the humidifier is reflashed with ESPHome and talks to the humidifier's own
+controller (MCU) over UART, so no extra hardware is needed. Behaviour follows the stock
+VeSync firmware, which was reverse engineered for this; see [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
 | Model | Code | Status |
 |---|---|---|
 | Dual 200S | LUH-D301S | 🧪 early development, tested on one unit (MCU firmware 2.0.02) |
 
-The UART protocol is documented in [docs/PROTOCOL.md](docs/PROTOCOL.md).
+**Contents:** [Quick start](#quick-start) · [Entities](#entities) ·
+[Configuration](#configuration) · [Humidifier entity (MQTT)](#humidifier-entity-optional-mqtt) ·
+[Behaviour](#behaviour) · [Flashing](#flashing) · [Troubleshooting](#troubleshooting) ·
+[Limitations](#known-limitations)
 
-## Usage
+## Quick start
 
-The quickest route is the ready-made package, which brings in the board settings,
-UART and every entity:
+Use the ready-made package. It brings in the board settings, the UART and every entity:
 
 ```yaml
 esphome:
@@ -46,12 +49,60 @@ wifi:
   password: !secret wifi_password
 ```
 
-To pick your own entities instead, use the component directly:
+The first install has to be flashed over the serial header, see [Flashing](#flashing);
+after that, updates go over Wi-Fi.
+
+## Entities
+
+The package adds these, grouped the way Home Assistant shows them on the device page.
+
+| Section | Name | Platform / `type` | Notes |
+|---|---|---|---|
+| Controls | Power | `switch` / `power` | |
+| | Mode | `select` / `mode` | `Manual` / `Auto`; switches the humidifier on |
+| | Target humidity | `number` / `target_humidity` | 30–80 %, only in Auto mode while on |
+| | Mist level | `number` / `mist_level` | 1–2; switches the humidifier on and to Manual |
+| | Timer | `number` / `timer` | minutes until the power flips (off if running, on if off); counts down, 0 cancels |
+| Sensors | Humidity | `sensor` / `humidity` | % |
+| | Temperature | `sensor` / `temperature` | °C |
+| | Low water | `binary_sensor` / `low_water` | tank empty |
+| | Water tank lifted | `binary_sensor` / `water_tank_lifted` | tank removed |
+| | Mist active | `binary_sensor` / `mist_active` | on, tank in, water available and target not reached |
+| | Target humidity reached | `binary_sensor` / `auto_stopped` | paused by Auto Off |
+| | Clean tank reminder | `binary_sensor` / `clean_reminder` | kept by the controller, MCU 2.0.1 and later |
+| Configuration | Display | `switch` / `display` | reads off while the humidifier is off, like the app |
+| | Auto Off | `switch` / `auto_stop` | stop misting at the target; kept across reboots |
+| | Reset clean tank reminder | `button` / `reset_clean_reminder` | |
+| | Restart | `button` / `restart` (ESPHome) | |
+| Diagnostic | MCU firmware | `text_sensor` / `mcu_version` | firmware of the humidifier controller |
+| | Error | `binary_sensor` / `error` | controller reports a fault, code in the log |
+| | Humidity high | `binary_sensor` / `humidity_high` | humidity above 80 % |
+| | Wi-Fi signal | `sensor` / `wifi_signal` (ESPHome) | |
+
+Every `levoit_humidifier` entity takes the usual ESPHome options (`name`, `icon`,
+`internal`, `entity_category`, ...) plus its `type`. Icons, units and sections have sensible
+defaults per type.
+
+**Changing the entities.** To rename, drop or add entities, use the component directly (below)
+and copy what you need from [packages/dual200s.yaml](packages/dual200s.yaml).
+
+## Configuration
+
+### Using the component directly
 
 ```yaml
 external_components:
   - source: github://Ahmed-max/esphome-levoit-humidifier@main
     components: [levoit_humidifier]
+    refresh: 0s
+
+esp32:
+  board: esp32dev
+  flash_size: 4MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_FREERTOS_UNICORE: y   # the ESP32-SOLO-1C is single core
 
 uart:
   tx_pin: GPIO17
@@ -59,7 +110,6 @@ uart:
   baud_rate: 9600
 
 levoit_humidifier:
-  # update_interval: 5s   # how often the status is polled
 
 switch:
   - platform: levoit_humidifier
@@ -67,39 +117,26 @@ switch:
     name: Power
 ```
 
-## Entities
+### Hub options
 
-Every entity takes the usual ESPHome options (`name`, `icon`, `internal`, ...) plus a `type`.
-
-| Platform | `type` | Notes |
+| Option | Default | Description |
 |---|---|---|
-| `switch` | `power` | |
-| `switch` | `display` | display on/off; reads off while the humidifier is off, like the app |
-| `switch` | `auto_stop` | stop misting when the target is reached ("Auto Off"); kept across reboots |
-| `select` | `mode` | `Manual` / `Auto`; switches the humidifier on |
-| `number` | `target_humidity` | 30–80 %, only in Auto mode while on |
-| `number` | `mist_level` | 1–2; switches on and to Manual |
-| `number` | `timer` | minutes until the power flips (off if running, on if off), shows the remaining time; 0 cancels. Lights the timer icon |
-| `sensor` | `humidity` | % |
-| `sensor` | `temperature` | °C |
-| `binary_sensor` | `low_water` | tank empty |
-| `binary_sensor` | `water_tank_lifted` | tank removed |
-| `binary_sensor` | `mist_active` | mist currently running |
-| `binary_sensor` | `auto_stopped` | target reached, paused by auto stop |
-| `binary_sensor` | `humidity_high` | humidity above 80 % |
-| `binary_sensor` | `error` | controller reports a fault (code in the log) |
-| `binary_sensor` | `clean_reminder` | tank-cleaning reminder from the controller |
-| `button` | `reset_clean_reminder` | clear the tank-cleaning reminder |
-| `text_sensor` | `mcu_version` | firmware of the humidifier controller |
+| `id` | | ID of the hub, needed only with more than one humidifier |
+| `uart_id` | | UART bus to use, if there is more than one |
+| `model` | `DUAL200S` | Humidifier model; only the Dual 200S exists so far |
+| `update_interval` | `5s` | How often the status is polled |
+| `mqtt_humidifier` | `false` | Also announce a Home Assistant humidifier entity over MQTT, see below |
+| `mqtt_discovery_prefix` | `homeassistant` | Discovery prefix for that entity |
 
 ## Humidifier entity (optional, MQTT)
 
-ESPHome has no humidifier entity type, so the main controls come as Power, Mode and
-Target humidity. For a real Home Assistant **humidifier** entity (the round dial with
-on/off, Auto/Manual and target humidity) the component can announce one over MQTT.
+ESPHome has no humidifier entity type, so by default the main controls are separate Power,
+Mode and Target humidity entities. With `mqtt_humidifier: true` the component also announces
+a real Home Assistant **humidifier** entity over MQTT: the round dial with on/off,
+Auto/Manual, target humidity, current humidity and a humidifying / idle / off state.
 It lands on the same device as the ESPHome entities, matched by MAC address.
 
-Needs an MQTT broker (e.g. the Mosquitto add-on) and the MQTT integration in Home
+It needs an MQTT broker (e.g. the Mosquitto add-on) and the MQTT integration in Home
 Assistant. Add to your device YAML:
 
 ```yaml
@@ -110,51 +147,89 @@ mqtt:
   broker: 192.168.178.10     # your broker
   username: !secret mqtt_username
   password: !secret mqtt_password
-  discovery: false           # keep: otherwise every entity shows up twice
+  discovery: false           # keep: otherwise every entity shows up a second time
 ```
 
-Turning the dial while in Manual switches to Auto, like the app. Everything else works
-without MQTT; if the broker is down only this one entity becomes unavailable.
+- Turning the dial while in Manual switches to Auto, like the app.
+- The separate entities stay; hide them in Home Assistant if you only want the dial.
+- If the broker is down only this one entity becomes unavailable.
+- With `mqtt_humidifier: false` (the default) none of this is compiled in and no `mqtt:`
+  block is needed.
 
-## Same rules as the VeSync firmware
+## Behaviour
 
-Changes the stock firmware refuses are refused here too and the entity snaps back:
-mode, mist level and target need water and the tank in place, the target can only be set
-in Auto mode while the humidifier is on, and the display only while it is on. Choosing a
-mode or mist level switches the humidifier on, like the app does.
+### Same rules as the VeSync firmware
 
-## Display behaviour
+Changes the stock firmware refuses are refused here too, the entity snaps back and the log
+says why:
 
-The display icons follow the stock firmware: the Wi-Fi icon is solid while connected,
-blinks while the fallback hotspot is up and is off otherwise; the timer icon is lit while a
-timer runs; the display cannot be changed while the humidifier is off.
+- mode, mist level and target need water and the tank in place
+- the target can only be set in Auto mode while the humidifier is on
+- the display can only be changed while the humidifier is on
+- choosing a mode or mist level switches the humidifier on
 
-The long-presses that started Wi-Fi pairing or a factory reset in the VeSync firmware are
-ignored: pairing does not exist here and nothing on the ESP is wiped by a stray press.
+### Display icons
+
+- **Wi-Fi icon:** solid while connected, blinking while the fallback hotspot is up, off
+  otherwise.
+- **Timer icon:** lit while a timer runs.
+- **Long presses** on the device's buttons, which started Wi-Fi pairing or a factory reset in
+  the VeSync firmware, are ignored: pairing does not exist here and nothing on the ESP can be
+  wiped by a stray press.
 
 ## Flashing
 
-> Back up the stock firmware first. Levoit does not publish it, so the backup is the
-> only way back to the VeSync app.
+> [!CAUTION]
+> Back up the stock firmware first. Levoit does not publish it, so the backup is the only
+> way back to the VeSync app. The backup also contains your Wi-Fi password and the device's
+> cloud keys: keep it private.
 
-1. Open the base and find the 6-pin `ISP` header next to the ESP32-SOLO-1C:
-   `EN, GND, VDD, TXD, RXD, IO0`.
-2. Connect a 3.3 V USB-UART adapter: adapter RX → `TXD`, adapter TX → `RXD`, GND → `GND`.
-   Leave `VDD` unconnected and power the humidifier from its own adapter; a USB-UART
-   3.3 V pin cannot supply the board.
-3. Bridge `IO0` to `GND` and power on to enter the bootloader.
-4. Back up the full 4 MB flash:
+You need a 3.3 V USB-UART adapter (CP2102, CH340, FTDI) and [esptool](https://github.com/espressif/esptool)
+(`pip install esptool`).
+
+1. Unplug the humidifier, open the base and find the 6-pin `ISP` header next to the
+   ESP32-SOLO-1C, marked `EN, GND, VDD, TXD, RXD, IO0` (pin 1 = `EN`, square pad).
+2. Connect the adapter: adapter RX → `TXD`, adapter TX → `RXD`, GND → `GND`.
+   Leave `VDD` unconnected: a USB-UART 3.3 V pin cannot supply the board. The humidifier
+   powers it from its own DC adapter.
+3. Bridge `IO0` to `GND` and plug the humidifier in to enter the bootloader.
+4. Back up the full 4 MB flash, ideally twice, and compare:
    ```bash
    esptool --port COMx --baud 460800 read-flash 0 ALL dual200s_stock.bin
    ```
-5. In ESPHome, *Install → Manual download → Factory format*, then flash it:
+5. In ESPHome, *Install → Manual download → Factory format*, then flash it
+   (replug the humidifier with `IO0` still bridged first):
    ```bash
    esptool --port COMx --baud 460800 write-flash 0 levoit-dual200s.factory.bin
    ```
-6. Remove the `IO0` bridge and power-cycle. Later updates go over Wi-Fi.
+6. Remove the `IO0` bridge and power-cycle.
 
-To go back to stock, write the backup to address 0.
+**Back to stock:** write the backup to address 0 the same way.
+
+## Troubleshooting
+
+- **What the humidifier reports:** every status change is logged as
+  `Status: power=... mode=... raw=...`. The `raw` bytes are what the MCU sent; please include
+  that line, and what the device really shows, in bug reports.
+- **`MCU did not ACK command 0x....`:** the controller is not answering. Check the UART pins
+  (TX GPIO17, RX GPIO16, 9600 baud).
+- **`Cannot set ...` / `Manual mode cannot set target humidity`:** a change the stock firmware
+  would refuse too, see [Behaviour](#behaviour).
+- **Changes on GitHub do not show up:** keep `refresh: 0s` on the package, or use
+  *Clean Build Files* in the ESPHome dashboard before installing.
+- **Old entities stay "Unavailable" after an update:** entities that were renamed or removed;
+  delete them in Home Assistant under *Settings → Entities*.
+
+## Known limitations
+
+- Only the Dual 200S, tested on a single unit with MCU firmware 2.0.02.
+- The timer lives on the ESP and is lost when it reboots (the stock firmware does the same).
+- Not ported: schedules (use Home Assistant automations), usage history, sleep mode
+  (rejected on this model by the stock firmware too) and Wi-Fi pairing.
+- The temperature reading is not shown in the VeSync app; its accuracy is unverified.
+- The tank-cleaning reminder needs MCU firmware 2.0.1 or later, where the controller keeps it.
 
 ## Credits
 
 Structure inspired by [tuct/levoit](https://github.com/tuct/levoit) (Levoit air purifiers).
+Licensed under the [MIT License](LICENSE).

@@ -44,6 +44,7 @@ switch:
     name: Auto Off
 
 select:
+  # Auto / Low / High, the same cycle as the button on the device
   - platform: levoit_humidifier
     type: mode
     name: Mode
@@ -52,10 +53,6 @@ number:
   - platform: levoit_humidifier
     type: target_humidity
     name: Target humidity
-    mode: slider
-  - platform: levoit_humidifier
-    type: mist_level
-    name: Mist level
     mode: slider
   - platform: levoit_humidifier
     type: timer

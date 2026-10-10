@@ -59,9 +59,8 @@ The package adds these, grouped the way Home Assistant shows them on the device 
 | Section | Name | Platform / `type` | Notes |
 |---|---|---|---|
 | Controls | Power | `switch` / `power` | |
-| | Mode | `select` / `mode` | `Manual` / `Auto`; switches the humidifier on |
+| | Mode | `select` / `mode` | `Auto` / `Low` / `High`, like the button on the device; switches the humidifier on |
 | | Target humidity | `number` / `target_humidity` | 30–80 %, only in Auto mode while on |
-| | Mist level | `number` / `mist_level` | 1–2; switches the humidifier on and to Manual |
 | | Timer | `number` / `timer` | minutes until the power flips (off if running, on if off); counts down, 0 cancels |
 | Sensors | Humidity | `sensor` / `humidity` | % |
 | | Temperature | `sensor` / `temperature` | °C |
@@ -78,6 +77,8 @@ The package adds these, grouped the way Home Assistant shows them on the device 
 | | Error | `binary_sensor` / `error` | controller reports a fault, code in the log |
 | | Humidity high | `binary_sensor` / `humidity_high` | humidity above 80 % |
 | | Wi-Fi signal | `sensor` / `wifi_signal` (ESPHome) | |
+
+Also available but not in the package: `number` / `mist_level` (1–2, same as Low / High).
 
 Every `levoit_humidifier` entity takes the usual ESPHome options (`name`, `icon`,
 `internal`, `entity_category`, ...) plus its `type`. Icons, units and sections have sensible
@@ -133,7 +134,7 @@ switch:
 ESPHome has no humidifier entity type, so by default the main controls are separate Power,
 Mode and Target humidity entities. With `mqtt_humidifier: true` the component also announces
 a real Home Assistant **humidifier** entity over MQTT: the round dial with on/off,
-Auto/Manual, target humidity, current humidity and a humidifying / idle / off state.
+Auto / Low / High, target humidity, current humidity and a humidifying / idle / off state.
 It lands on the same device as the ESPHome entities, matched by MAC address.
 
 It needs an MQTT broker (e.g. the Mosquitto add-on) and the MQTT integration in Home
@@ -150,7 +151,7 @@ mqtt:
   discovery: false           # keep: otherwise every entity shows up a second time
 ```
 
-- Turning the dial while in Manual switches to Auto, like the app.
+- Turning the dial while in Low or High switches to Auto, like the app.
 - The separate entities stay; hide them in Home Assistant if you only want the dial.
 - If the broker is down only this one entity becomes unavailable.
 - With `mqtt_humidifier: false` (the default) none of this is compiled in and no `mqtt:`
@@ -163,10 +164,10 @@ mqtt:
 Changes the stock firmware refuses are refused here too, the entity snaps back and the log
 says why:
 
-- mode, mist level and target need water and the tank in place
-- the target can only be set in Auto mode while the humidifier is on
+- mode and target need water and the tank in place
+- the target can only be set in Auto while the humidifier is on
 - the display can only be changed while the humidifier is on
-- choosing a mode or mist level switches the humidifier on
+- choosing a mode switches the humidifier on
 
 ### Display icons
 
@@ -213,7 +214,7 @@ You need a 3.3 V USB-UART adapter (CP2102, CH340, FTDI) and [esptool](https://gi
   that line, and what the device really shows, in bug reports.
 - **`MCU did not ACK command 0x....`:** the controller is not answering. Check the UART pins
   (TX GPIO17, RX GPIO16, 9600 baud).
-- **`Cannot set ...` / `Manual mode cannot set target humidity`:** a change the stock firmware
+- **`Cannot set ...` / `Manual mode cannot set target humidity`** (Low / High are manual): a change the stock firmware
   would refuse too, see [Behaviour](#behaviour).
 - **Changes on GitHub do not show up:** keep `refresh: 0s` on the package, or use
   *Clean Build Files* in the ESPHome dashboard before installing.

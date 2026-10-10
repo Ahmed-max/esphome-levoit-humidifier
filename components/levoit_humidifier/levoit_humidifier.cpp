@@ -59,6 +59,14 @@ static const size_t ST_CLEAN_REMINDER = 20;  // only sent by MCUs that run the r
 
 // stock firmware maps 0 -> "auto", 1 -> "manual" (its internal mode 4)
 static const uint8_t MODE_MANUAL = 1;
+
+// Modes as the device button cycles them: Auto, then manual at mist level 1 (Low) or 2 (High)
+static const char *const MODE_NAMES[] = {"auto", "low", "high"};
+static size_t mode_index(const uint8_t *d) {
+  if (d[ST_MODE] != MODE_MANUAL)
+    return 0;
+  return d[ST_MIST_LEVEL] >= 2 ? 2 : 1;
+}
 // stock firmware reports humidity_high to the app above this value
 static const uint8_t HUMIDITY_HIGH_ABOVE = 80;
 
@@ -300,6 +308,12 @@ bool LevoitHumidifier::set_mist_level(uint8_t level) {
   return true;
 }
 
+bool LevoitHumidifier::set_mode(size_t index) {
+  if (index == 0)
+    return this->set_auto_mode(true);
+  return this->set_mist_level(index == 2 ? 2 : 1);  // Low / High = manual at that level
+}
+
 bool LevoitHumidifier::set_auto_target(uint8_t target) {
   if (target < MIN_TARGET_HUMIDITY || target > MAX_TARGET_HUMIDITY) {
     ESP_LOGW(TAG, "Target humidity %u%% is out of range", target);
@@ -332,7 +346,10 @@ void LevoitHumidifier::mqtt_setup_() {
     this->mqtt_dirty_ = true;
   });
   client->subscribe(this->mqtt_topic_("mode/set"), [this](const std::string &, const std::string &payload) {
-    this->set_auto_mode(payload == "auto");
+    for (size_t i = 0; i < 3; i++) {
+      if (payload == MODE_NAMES[i])
+        this->set_mode(i);
+    }
     this->mqtt_dirty_ = true;  // a refused change snaps the entity back
   });
   client->subscribe(this->mqtt_topic_("target/set"), [this](const std::string &, const std::string &payload) {
@@ -368,8 +385,8 @@ void LevoitHumidifier::mqtt_loop_() {
           root["mode_command_topic"] = this->mqtt_topic_("mode/set");
           root["mode_state_topic"] = this->mqtt_topic_("mode");
           JsonArray modes = root["modes"].to<JsonArray>();
-          modes.add("auto");
-          modes.add("manual");
+          for (const char *name : MODE_NAMES)
+            modes.add(name);
           root["action_topic"] = this->mqtt_topic_("action");
           root["min_humidity"] = MIN_TARGET_HUMIDITY;
           root["max_humidity"] = MAX_TARGET_HUMIDITY;
@@ -402,7 +419,7 @@ void LevoitHumidifier::mqtt_loop_() {
   bool misting = on && !d[ST_TANK_LIFTED] && !d[ST_WATER_EMPTY] && !d[ST_AUTO_STOPPED];
   // std::string payloads: a bare literal would pick the (char *, length) overload
   client->publish(this->mqtt_topic_("power"), std::string(on ? "ON" : "OFF"), 0, true);
-  client->publish(this->mqtt_topic_("mode"), std::string(d[ST_MODE] == MODE_MANUAL ? "manual" : "auto"), 0, true);
+  client->publish(this->mqtt_topic_("mode"), std::string(MODE_NAMES[mode_index(d)]), 0, true);
   client->publish(this->mqtt_topic_("target"), to_string(d[ST_TARGET]), 0, true);
   client->publish(this->mqtt_topic_("current"), to_string(d[ST_HUMIDITY]), 0, true);
   client->publish(this->mqtt_topic_("action"), std::string(!on ? "off" : misting ? "humidifying" : "idle"), 0, true);
@@ -591,9 +608,9 @@ void LevoitHumidifier::handle_status_(const uint8_t *d, size_t len) {
     pub_number(NumberType::MIST_LEVEL, d[ST_MIST_LEVEL]);
 
   auto *mode = this->selects_[(size_t) SelectType::MODE];
-  size_t mode_index = d[ST_MODE] == MODE_MANUAL ? 0 : 1;
-  if (mode != nullptr && (first || mode->active_index() != mode_index))
-    mode->publish_state(mode_index);
+  size_t index = mode_index(d);
+  if (mode != nullptr && (first || mode->active_index() != index))
+    mode->publish_state(index);
 
   pub_sensor(SensorType::HUMIDITY, d[ST_HUMIDITY]);
   pub_sensor(SensorType::TEMPERATURE, d[ST_TEMPERATURE]);

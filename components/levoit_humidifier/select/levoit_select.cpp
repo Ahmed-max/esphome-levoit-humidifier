@@ -7,7 +7,7 @@ namespace levoit_humidifier {
 void LevoitSelect::control(size_t index) {
   if (this->type_ != SelectType::MODE)
     return;
-  if (this->parent_->set_auto_mode(index == 1)) {
+  if (this->parent_->set_mode(index)) {
     this->publish_state(index);
   } else if (this->active_index().has_value()) {
     this->publish_state(*this->active_index());  // refused: snap Home Assistant back

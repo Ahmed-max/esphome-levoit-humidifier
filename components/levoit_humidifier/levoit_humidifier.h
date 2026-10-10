@@ -51,6 +51,8 @@ class LevoitHumidifier : public PollingComponent, public uart::UARTDevice {
   bool set_auto_mode(bool on);
   bool set_target_humidity(uint8_t target);
   bool set_mist_level(uint8_t level);
+  // the device's own modes: 0 = Auto, 1 = Low, 2 = High (manual at mist level 1 / 2)
+  bool set_mode(size_t index);
   // target from the humidifier entity: like turning the dial in the app, it moves to Auto
   bool set_auto_target(uint8_t target);
 

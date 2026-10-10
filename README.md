@@ -23,7 +23,11 @@ esphome:
   friendly_name: Levoit Dual 200S
 
 packages:
-  levoit: github://Ahmed-max/esphome-levoit-humidifier/packages/dual200s.yaml@main
+  levoit:
+    url: https://github.com/Ahmed-max/esphome-levoit-humidifier
+    ref: main
+    files: [packages/dual200s.yaml]
+    refresh: 0s   # always build the latest version
 
 logger:
 api:

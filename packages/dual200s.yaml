@@ -17,6 +17,7 @@ esp32:
 external_components:
   - source: github://Ahmed-max/esphome-levoit-humidifier@main
     components: [levoit_humidifier]
+    refresh: 0s
 
 uart:
   id: levoit_uart

@@ -74,7 +74,7 @@ Every entity takes the usual ESPHome options (`name`, `icon`, `internal`, ...) p
 | Platform | `type` | Notes |
 |---|---|---|
 | `switch` | `power` | |
-| `switch` | `display` | display on/off |
+| `switch` | `display` | display on/off; reads off while the humidifier is off, like the app |
 | `switch` | `auto_stop` | stop misting when the target is reached ("Auto Off"); kept across reboots |
 | `select` | `mode` | `Manual` / `Auto`; switches the humidifier on |
 | `number` | `target_humidity` | 30–80 %, only in Auto mode while on |
@@ -87,6 +87,7 @@ Every entity takes the usual ESPHome options (`name`, `icon`, `internal`, ...) p
 | `binary_sensor` | `mist_active` | mist currently running |
 | `binary_sensor` | `auto_stopped` | target reached, paused by auto stop |
 | `binary_sensor` | `humidity_high` | humidity above 80 % |
+| `binary_sensor` | `error` | controller reports a fault (code in the log) |
 | `binary_sensor` | `clean_reminder` | tank-cleaning reminder from the controller |
 | `button` | `reset_clean_reminder` | clear the tank-cleaning reminder |
 | `event` | `button` | long-presses on the device: `pairing`, `factory_reset`, `test_mode` |

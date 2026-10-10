@@ -9,7 +9,7 @@ enum class SwitchType : uint8_t { POWER, DISPLAY, AUTO_STOP, COUNT };
 enum class NumberType : uint8_t { TARGET_HUMIDITY, MIST_LEVEL, TIMER, COUNT };
 enum class SelectType : uint8_t { MODE, COUNT };
 enum class SensorType : uint8_t { HUMIDITY, TEMPERATURE, COUNT };
-enum class BinarySensorType : uint8_t { WATER_TANK_LIFTED, LOW_WATER, MIST_ACTIVE, AUTO_STOPPED, CLEAN_REMINDER, HUMIDITY_HIGH, COUNT };
+enum class BinarySensorType : uint8_t { WATER_TANK_LIFTED, LOW_WATER, MIST_ACTIVE, AUTO_STOPPED, CLEAN_REMINDER, HUMIDITY_HIGH, FAULT, COUNT };
 enum class TextSensorType : uint8_t { MCU_VERSION, COUNT };
 enum class ButtonType : uint8_t { RESET_CLEAN_REMINDER, COUNT };
 

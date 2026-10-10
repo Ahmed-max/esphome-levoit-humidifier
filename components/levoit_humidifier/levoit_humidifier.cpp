@@ -469,7 +469,8 @@ void LevoitHumidifier::handle_status_(const uint8_t *d, size_t len) {
   };
 
   pub_switch(SwitchType::POWER, d[ST_POWER]);
-  pub_switch(SwitchType::DISPLAY, d[ST_DISPLAY] > 0);
+  // reported like the app does: the display counts as on only while the humidifier is on
+  pub_switch(SwitchType::DISPLAY, d[ST_DISPLAY] > 0 && d[ST_POWER]);
 
   pub_number(NumberType::TARGET_HUMIDITY, d[ST_TARGET]);
   if (d[ST_MIST_LEVEL] >= 1)
@@ -489,6 +490,8 @@ void LevoitHumidifier::handle_status_(const uint8_t *d, size_t len) {
   pub_binary(BinarySensorType::MIST_ACTIVE, d[ST_POWER] && !d[ST_TANK_LIFTED] && !d[ST_WATER_EMPTY] && !d[ST_AUTO_STOPPED]);
   pub_binary(BinarySensorType::AUTO_STOPPED, d[ST_AUTO_STOPPED]);
   pub_binary(BinarySensorType::HUMIDITY_HIGH, d[ST_HUMIDITY] > HUMIDITY_HIGH_ABOVE);
+  // the stock firmware raises a humidifierError event while this byte is non-zero
+  pub_binary(BinarySensorType::FAULT, d[ST_EXCEPTION] != 0);
   if (len > ST_CLEAN_REMINDER)
     pub_binary(BinarySensorType::CLEAN_REMINDER, d[ST_CLEAN_REMINDER]);
 

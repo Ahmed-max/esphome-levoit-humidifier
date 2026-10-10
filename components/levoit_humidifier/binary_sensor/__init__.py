@@ -2,10 +2,12 @@ import esphome.codegen as cg
 from esphome.components import binary_sensor
 from esphome.const import (
     CONF_DEVICE_CLASS,
+    CONF_ENTITY_CATEGORY,
     CONF_ICON,
     CONF_TYPE,
     DEVICE_CLASS_PROBLEM,
     DEVICE_CLASS_RUNNING,
+    ENTITY_CATEGORY_DIAGNOSTIC,
 )
 
 from .. import CONF_LEVOIT_HUMIDIFIER_ID, levoit_humidifier_ns, typed_schema
@@ -34,6 +36,11 @@ TYPES = {
     "humidity_high": (
         BinarySensorType.HUMIDITY_HIGH,
         {CONF_ICON: "mdi:water-percent-alert"},
+    ),
+    # controller fault (status exception byte), see the log for the code
+    "error": (
+        BinarySensorType.FAULT,
+        {CONF_DEVICE_CLASS: DEVICE_CLASS_PROBLEM, CONF_ENTITY_CATEGORY: ENTITY_CATEGORY_DIAGNOSTIC},
     ),
     # tank-cleaning reminder kept by the humidifier controller (MCU 2.0.1 and later)
     "clean_reminder": (

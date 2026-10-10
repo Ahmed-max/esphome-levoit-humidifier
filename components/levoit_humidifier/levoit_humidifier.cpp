@@ -238,7 +238,9 @@ void LevoitHumidifier::set_auto_stop(bool on) {
 // Rules below follow the stock firmware's app command handlers.
 
 bool LevoitHumidifier::check_water_(const char *what) {
-  if (!this->have_status_)
+  // The MCU reports "water lacks" all the time while it is off (seen on MCU 2.0.02), so
+  // only trust it while running; switching on makes the MCU check the water itself.
+  if (!this->have_status_ || !this->power_on_)
     return true;
   if (this->water_low_) {
     ESP_LOGW(TAG, "Cannot set %s: water lacks", what);
@@ -616,7 +618,8 @@ void LevoitHumidifier::handle_status_(const uint8_t *d, size_t len) {
   pub_sensor(SensorType::TEMPERATURE, d[ST_TEMPERATURE]);
 
   pub_binary(BinarySensorType::WATER_TANK_LIFTED, d[ST_TANK_LIFTED]);
-  pub_binary(BinarySensorType::LOW_WATER, d[ST_WATER_EMPTY]);
+  // only meaningful while running, see check_water_()
+  pub_binary(BinarySensorType::LOW_WATER, d[ST_WATER_EMPTY] && d[ST_POWER]);
   // misting = on, tank in place, water available and the target not reached yet
   pub_binary(BinarySensorType::MIST_ACTIVE, d[ST_POWER] && !d[ST_TANK_LIFTED] && !d[ST_WATER_EMPTY] && !d[ST_AUTO_STOPPED]);
   pub_binary(BinarySensorType::AUTO_STOPPED, d[ST_AUTO_STOPPED]);

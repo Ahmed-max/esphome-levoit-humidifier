@@ -64,7 +64,7 @@ The package adds these, grouped the way Home Assistant shows them on the device 
 | | Timer | `number` / `timer` | minutes until the power flips (off if running, on if off); counts down, 0 cancels |
 | Sensors | Humidity | `sensor` / `humidity` | % |
 | | Temperature | `sensor` / `temperature` | °C |
-| | Low water | `binary_sensor` / `low_water` | tank empty |
+| | Low water | `binary_sensor` / `low_water` | tank empty; only reported while running (the MCU says "lacks" whenever it is off) |
 | | Water tank lifted | `binary_sensor` / `water_tank_lifted` | tank removed |
 | | Mist active | `binary_sensor` / `mist_active` | on, tank in, water available and target not reached |
 | | Target humidity reached | `binary_sensor` / `auto_stopped` | paused by Auto Off |
@@ -164,7 +164,7 @@ mqtt:
 Changes the stock firmware refuses are refused here too, the entity snaps back and the log
 says why:
 
-- mode and target need water and the tank in place
+- while running, mode and target need water and the tank in place
 - the target can only be set in Auto while the humidifier is on
 - the display can only be changed while the humidifier is on
 - choosing a mode switches the humidifier on

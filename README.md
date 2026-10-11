@@ -35,11 +35,11 @@ esphome:
 packages:
   levoit:
     url: https://github.com/Ahmed-max/esphome-levoit-humidifier
-    ref: v0.1.0
+    ref: v0.1.1
     files:
       - path: packages/dual200s.yaml
         vars:
-          levoit_ref: v0.1.0
+          levoit_ref: v0.1.1
 
 logger:
 api:

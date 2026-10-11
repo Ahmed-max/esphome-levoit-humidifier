@@ -93,7 +93,7 @@ static void test_parse_ack() {
   CHECK(s.manual());
   CHECK(s.mist_level == 1);
   CHECK(s.mode_index() == 1);  // the device showed the Low light
-  CHECK(std::strcmp(MODE_NAMES[s.mode_index()], "low") == 0);
+  CHECK(std::strcmp(MODE_NAMES[s.mode_index()], "Low") == 0);
   CHECK(s.display_config == 100);
   CHECK(!s.display_on());   // off while powered off, like the app
   CHECK(!s.low_water());    // water_lacks is ignored while off

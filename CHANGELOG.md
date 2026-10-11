@@ -3,6 +3,12 @@
 Versions follow [semantic versioning](https://semver.org). While the version starts with `0.`,
 any release may change entities or options; check this file before updating.
 
+## v0.1.1
+
+### Fixed
+- The MQTT humidifier entity's modes show as Auto / Low / High instead of lowercase
+  (Home Assistant shows custom modes exactly as sent).
+
 ## v0.1.0 — first release
 
 Early development: tested on one Dual 200S (MCU firmware 2.0.02).

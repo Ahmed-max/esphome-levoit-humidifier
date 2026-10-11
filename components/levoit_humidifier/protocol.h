@@ -112,7 +112,8 @@ static const uint8_t MODE_MANUAL = 1;            // 0 = auto; the stock firmware
 static const uint8_t HUMIDITY_HIGH_ABOVE = 80;   // the stock firmware's humidity_high
 
 // Modes as the button on the device cycles them: Auto, then manual at mist level 1 / 2.
-static const char *const MODE_NAMES[] = {"auto", "low", "high"};
+// Capitalised: Home Assistant shows custom humidifier modes exactly as sent.
+static const char *const MODE_NAMES[] = {"Auto", "Low", "High"};
 static const size_t MODE_COUNT = 3;
 
 struct Status {

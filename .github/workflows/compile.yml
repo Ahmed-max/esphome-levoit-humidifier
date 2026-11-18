@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # weekly, so a new ESPHome release that breaks the component is noticed before users hit it
+  schedule:
+    - cron: '0 6 * * 1'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -22,12 +25,14 @@ jobs:
           ./test_protocol
 
   compile:
-    name: ${{ matrix.config }}
+    name: ${{ matrix.config }} (ESPHome ${{ matrix.esphome }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         config: [test-all-entities.yaml, test-minimal.yaml, test-mqtt.yaml]
+        # oldest supported release and the latest one
+        esphome: ['2026.9.1', latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -42,11 +47,13 @@ jobs:
             ~/.platformio
             ~/.esphome
             ~/.cache/pip
-          key: esphome-${{ runner.os }}-${{ hashFiles('components/*/tests/*.yaml') }}
-          restore-keys: esphome-${{ runner.os }}-
+          key: esphome-${{ runner.os }}-${{ matrix.esphome }}-${{ hashFiles('components/*/tests/*.yaml') }}
+          restore-keys: esphome-${{ runner.os }}-${{ matrix.esphome }}-
 
       - name: Install ESPHome
-        run: pip install esphome
+        run: |
+          if [ '${{ matrix.esphome }}' = latest ]; then pip install esphome; else pip install 'esphome==${{ matrix.esphome }}'; fi
+          esphome version
 
       - name: Validate config
         working-directory: components/levoit_humidifier/tests

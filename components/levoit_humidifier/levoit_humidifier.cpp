@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <cmath>
 
+// format_hex_pretty, str_sprintf and get_mac_address_pretty live here; helpers.h stopped
+// including it in ESPHome 2026.11
+#include "esphome/core/alloc_helpers.h"
 #include "esphome/core/defines.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/helpers.h"

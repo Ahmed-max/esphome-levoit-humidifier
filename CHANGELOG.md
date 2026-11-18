@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org). While the version starts with `0.`,
 any release may change entities or options; check this file before updating.
 
+## v0.1.2
+
+### Fixed
+- Build failure with ESPHome 2026.11 (`format_hex_pretty`, `str_sprintf` and
+  `get_mac_address_pretty` were not declared): they moved to `alloc_helpers.h`, which is now
+  included explicitly. Still builds with older ESPHome.
+
+### Changed
+- CI compiles against the oldest supported ESPHome (2026.9.1) and the latest release, and
+  runs weekly to catch breaking ESPHome updates early.
+
 ## v0.1.1
 
 ### Fixed
